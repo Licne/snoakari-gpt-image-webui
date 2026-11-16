@@ -332,9 +332,31 @@ def sniff_ext(blob, fallback=".png"):
     return fallback
 
 
-def save_images(resp_json, fmt):
+def size_tier(size):
+    """由请求的 size 推导档位：1k / 2k / 4k，auto 或无法解析时返回 auto"""
+    s = (size or "").strip().lower()
+    if s in ("", "auto"):
+        return "auto"
+    m = re.match(r"^(\d{3,5})\s*[x×]\s*(\d{3,5})$", s)
+    if not m:
+        return "auto"
+    long_edge = max(int(m.group(1)), int(m.group(2)))
+    if long_edge <= 1536:
+        return "1k"
+    if long_edge <= 2600:
+        return "2k"
+    return "4k"
+
+
+def fs_safe(s):
+    """文件名安全化：替换 Windows/Linux 路径非法字符，其余（含中文）保留"""
+    return re.sub(r'[\\/:*?"<>|\s]+', "_", str(s or "")).strip("_") or "x"
+
+
+def save_images(resp_json, fmt, prefix=""):
     """解析响应（b64_json 或 url），落盘并返回 [{name,url,bytes}]。
-    扩展名按实际字节魔数判断（中转站可能无视 output_format 始终返回 PNG）。"""
+    扩展名按实际字节魔数判断（中转站可能无视 output_format 始终返回 PNG）。
+    prefix 附加在时间戳前，形如 档位_模型_分组。"""
     items = resp_json.get("data") or []
     results = []
     ext_hint = IMG_EXTS.get(fmt, ".png")
@@ -347,7 +369,7 @@ def save_images(resp_json, fmt):
             continue
         stamp = time.strftime("%Y%m%d-%H%M%S")
         ext = sniff_ext(blob, ext_hint)
-        name = f"{stamp}-{uuid.uuid4().hex[:6]}" + (f"-{idx}" if len(items) > 1 else "") + ext
+        name = (f"{prefix}_" if prefix else "") + f"{stamp}-{uuid.uuid4().hex[:6]}" + (f"-{idx}" if len(items) > 1 else "") + ext
         results.append({"name": name, "bytes": blob})
     if not results:
         raise RuntimeError("响应中没有图片数据：" + json.dumps(resp_json, ensure_ascii=False)[:1500])
@@ -460,7 +482,8 @@ def do_generate(cfg, payload):
             _register_resp(job_id, r)
             resp_json = read_response(r, job_id)
 
-    images = save_images(resp_json, fmt)
+    name_prefix = f"{fs_safe(size_tier(size))}_{fs_safe(model)}_{fs_safe(cfg.get('group') or '')}"
+    images = save_images(resp_json, fmt, prefix=name_prefix)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = []
     for img in images:
