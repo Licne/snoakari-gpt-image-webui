@@ -228,6 +228,41 @@ def api_request(url, headers, data=None, timeout=REQUEST_TIMEOUT):
 
 # ------------------------------ 生成任务中止 ------------------------------
 _ACTIVE_JOBS = {}          # job_id -> {"resp": HTTPResponse|None, "cancelled": bool}
+_BG_JOBS = {}              # job_id -> 后台任务信息（供前端轮询进度）
+
+
+def _bg_register(job_id, payload, cfg):
+    if not job_id:
+        return
+    prompt = (payload.get("prompt") or "")
+    with _JOBS_LOCK:
+        _BG_JOBS[job_id] = {
+            "id": job_id,
+            "mode": payload.get("mode", "gen"),
+            "model": payload.get("model") or cfg.get("model") or "",
+            "size": (payload.get("size") or "auto"),
+            "n": payload.get("n") or 1,
+            "pshow": prompt[:30] + ("…" if len(prompt) > 30 else ""),
+            "t0": time.time(), "t_end": None,
+            "status": "running", "error": "", "images": [], "elapsed": 0,
+        }
+        done = [k for k, v in _BG_JOBS.items() if v["status"] != "running"]
+        while len(_BG_JOBS) > 60 and done:
+            _BG_JOBS.pop(done.pop(0), None)
+
+
+def _bg_finish(job_id, status, images=None, elapsed=None, error=""):
+    if not job_id:
+        return
+    with _JOBS_LOCK:
+        e = _BG_JOBS.get(job_id)
+        if e is None:
+            return
+        e["status"] = status
+        e["t_end"] = time.time()
+        e["images"] = images or []
+        e["error"] = error or ""
+        e["elapsed"] = elapsed if elapsed is not None else round(e["t_end"] - e["t0"], 1)
 _JOBS_LOCK = threading.Lock()
 
 
@@ -467,7 +502,7 @@ def do_generate(cfg, payload):
         data = json.dumps(body).encode("utf-8")
         headers = dict(auth, **{"Content-Type": "application/json"})
         pshow = prompt[:30] + ("…" if len(prompt) > 30 else "")
-        log(f"开始生成 | 文生图 | 模型={model} 尺寸={size} 张数={n} | {pshow}")
+        log(f"开始生成 | 文生图 | 模型={model} 尺寸={size} 张数={n} 代理={cfg.get('proxy') or '直连'} | {pshow}")
         with api_request(f"{cfg['base_url']}/v1/images/generations", headers, data) as r:
             _register_resp(job_id, r)
             resp_json = read_response(r, job_id)
@@ -498,7 +533,7 @@ def do_generate(cfg, payload):
         body, ctype = build_multipart(fields, files)
         headers = dict(auth, **{"Content-Type": ctype})
         pshow = prompt[:30] + ("…" if len(prompt) > 30 else "")
-        log(f"开始生成 | 改图 | 模型={model} 尺寸={size} 张数={n} 输入图={len(imgs[:16])}张"
+        log(f"开始生成 | 改图 | 模型={model} 尺寸={size} 张数={n} 输入图={len(imgs[:16])}张 代理={cfg.get('proxy') or '直连'}"
             + (" 带蒙版" if mask else "") + f" | {pshow}")
         with api_request(f"{cfg['base_url']}/v1/images/edits", headers, body) as r:
             _register_resp(job_id, r)
@@ -602,6 +637,11 @@ class Handler(BaseHTTPRequestHandler):
             subprocess.Popen('explorer /select,"' + os.path.abspath(path) + '"')
             log(f"本地查看：已定位 outputs/{name}")
             self._send(200, {"ok": True})
+        elif self.path == "/api/jobs":
+            with _JOBS_LOCK:
+                jobs = list(_BG_JOBS.values())
+            jobs.sort(key=lambda x: (0 if x["status"] == "running" else 1, -(x["t_end"] or x["t0"])))
+            self._send(200, {"jobs": jobs[:30]})
         elif self.path.startswith("/api/history"):
             os.makedirs(OUTPUT_DIR, exist_ok=True)
             favs = load_favs()
@@ -836,6 +876,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
+        if self.path == "/api/jobs/clear":
+            with _JOBS_LOCK:
+                for k in [k for k, v in _BG_JOBS.items() if v["status"] != "running"]:
+                    _BG_JOBS.pop(k, None)
+            self._send(200, {"ok": True})
+            return
+
         if self.path != "/api/generate":
             return self._send(404, {"error": "not found"})
         try:
@@ -843,20 +890,32 @@ class Handler(BaseHTTPRequestHandler):
             if length > 80 * 1024 * 1024:
                 return self._send(413, {"error": "请求体过大（图片太多或太大）"})
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            result = do_generate(self.server.app_config, payload)
-            self._send(200, result)
-        except urllib.error.HTTPError as e:
+            jid = (payload.get("job_id") or "").strip()
+            _bg_register(jid, payload, self.server.app_config)
             try:
-                detail = e.read().decode("utf-8", "replace")[:800]
-            except Exception:
-                detail = str(e)
-            log(f"生成失败：上游返回 HTTP {e.code}：{detail[:200]}")
-            self._send(200, {"error": f"上游返回 HTTP {e.code}", "detail": detail})
-        except ValueError as e:
-            log(f"生成失败（参数校验）：{e}")
-            self._send(200, {"error": str(e)})
+                result = do_generate(self.server.app_config, payload)
+                _bg_finish(jid, "done",
+                           images=[im.get("name") for im in (result.get("images") or [])],
+                           elapsed=result.get("elapsed"))
+                self._send(200, result)
+            except urllib.error.HTTPError as e:
+                try:
+                    detail = e.read().decode("utf-8", "replace")[:800]
+                except Exception:
+                    detail = str(e)
+                log(f"生成失败：上游返回 HTTP {e.code}：{detail[:200]}")
+                _bg_finish(jid, "failed", error=f"上游返回 HTTP {e.code}")
+                self._send(200, {"error": f"上游返回 HTTP {e.code}", "detail": detail})
+            except ValueError as e:
+                log(f"生成失败（参数校验）：{e}")
+                _bg_finish(jid, "cancelled" if str(e) == "已中止" else "failed", error=str(e))
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                log(f"生成失败：{type(e).__name__}: {e}")
+                _bg_finish(jid, "failed", error=f"{type(e).__name__}: {e}")
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
         except Exception as e:
-            log(f"生成失败：{type(e).__name__}: {e}")
             self._send(200, {"error": f"{type(e).__name__}: {e}"})
 
 
@@ -934,6 +993,19 @@ select, input[type=text] { background:var(--panel2); color:var(--text); border:1
 #go { width:100%; margin-top:16px; padding:13px 0; border:0; border-radius:10px;
    background:var(--acc2); color:#06231a; font-size:15px; font-weight:700; cursor:pointer; }
 #go:disabled { background:#2c5a49; color:#7fa393; cursor:not-allowed; }
+.bgBtn { margin-top:10px; width:100%; padding:9px 0; border-radius:10px; cursor:pointer;
+  border:1px dashed var(--acc); background:rgba(52,211,153,.06); color:var(--acc); font-size:13px; }
+.bgBtn:hover { background:rgba(52,211,153,.14); }
+.jobsPanel { margin-top:12px; border:1px solid var(--line); border-radius:10px; background:var(--panel2); padding:10px 12px; }
+.jobsHead { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:8px; }
+.jobsHead a { color:var(--acc); text-decoration:none; margin-left:8px; }
+.jobItem { padding:7px 8px; border-bottom:1px dashed var(--line); font-size:12px; color:var(--text); line-height:1.6; }
+.jobItem:last-child { border-bottom:0; }
+.jobItem .run { color:var(--acc); }
+.jobItem .ok { color:#7dd3fc; }
+.jobItem .fail { color:#f87171; }
+.jobItem .can { color:var(--muted); }
+.jobItem .del { color:#f87171; text-decoration:none; float:right; }
 .status { margin-top:12px; font-size:13px; color:var(--muted); min-height:20px;
    white-space:pre-wrap; word-break:break-all; }
 .status.err { color:#f87171; }
@@ -1073,6 +1145,18 @@ body.masked .card img { cursor:pointer; }
 
   <button id="go" onclick="generate()">生成（约 60~90 秒 / 张）</button>
   <div class="status" id="status"></div>
+  <button id="toBgBtn" class="bgBtn" style="display:none" onclick="toBackground()">转入后台，继续填写参数</button>
+  <div id="jobsPanel" class="jobsPanel" style="display:none">
+    <div class="jobsHead">
+      <span>后台任务（<span id="jobsRun">0</span> 个进行中）</span>
+      <span>
+        <a href="javascript:void(0)" onclick="refreshJobs(true)">刷新</a>
+        <a href="javascript:void(0)" onclick="clearJobs()">清除已完成</a>
+        <a href="javascript:void(0)" onclick="toggleJobsPanel(false)">收起</a>
+      </span>
+    </div>
+    <div id="jobsList"></div>
+  </div>
 </aside>
 
 <main>
@@ -1434,6 +1518,60 @@ function currentSize(){
   return vals[+($('sizeTier').value || 0)] || 'auto';
 }
 
+let bgPollTimer = null;
+function toBackground(){
+  // 断开前端 fetch（AbortController 只影响浏览器等待，服务端任务继续）
+  if (genAbort) genAbort.abort();
+  $('go').disabled = false; $('go').textContent = '生成（约 60~90 秒 / 张）';
+  $('toBgBtn').style.display = 'none';
+  $('status').className = 'status';
+  $('status').textContent = '任务已转入后台：' + (genJobId||'');
+  toggleJobsPanel(true); refreshJobs();
+}
+function toggleJobsPanel(show){
+  $('jobsPanel').style.display = show ? '' : 'none';
+  if (show) refreshJobs();
+  if (bgPollTimer){ clearInterval(bgPollTimer); bgPollTimer = null; }
+  if (show) bgPollTimer = setInterval(refreshJobs, 3000);
+}
+async function refreshJobs(force){
+  try{
+    const j = await (await fetch('/api/jobs')).json();
+    const jobs = j.jobs || [];
+    let running = 0;
+    $('jobsList').innerHTML = jobs.map(t => {
+      const stMap = {running:['run','进行中'], done:['ok','已完成'], failed:['fail','失败'], cancelled:['can','已中止']};
+      const [cls, label] = stMap[t.status] || ['can', t.status];
+      if (t.status === 'running') running++;
+      const tstr = t.status === 'running'
+        ? '已等 ' + Math.round((Date.now()/1000 - t.t0)) + ' 秒'
+        : (t.elapsed || 0) + ' 秒';
+      const imgs = (t.images||[]).length ? `，${t.images.length} 张已入库` : '';
+      const err = t.error ? `，${t.error.slice(0,60)}` : '';
+      return `<div class="jobItem">
+        <a class="del" href="javascript:void(0)" onclick="cancelJob('${t.id}')" title="中止">✕</a>
+        <span class="${cls}">● ${label}</span> ${t.mode==='edit'?'改图':'文生图'} · ${t.model} · ${t.size} · ${tstr}${imgs}${err}<br>
+        <span style="color:var(--muted)">${t.pshow||''}</span></div>`;
+    }).join('') || '<div class="jobItem" style="color:var(--muted)">暂无任务</div>';
+    $('jobsRun').textContent = running;
+    if (running === 0 && !force && !jobs.some(t => t.status==='done' && !(seenDone||{})[t.id])){
+      // 有新完成任务时刷一次历史
+      loadHistory();
+    }
+    (window.seenDone = window.seenDone || {});
+    jobs.forEach(t => { if (t.status==='done') window.seenDone[t.id] = 1; });
+    if (running === 0 && bgPollTimer){ clearInterval(bgPollTimer); bgPollTimer = null; }
+  }catch(e){ /* 面板静默 */ }
+}
+async function clearJobs(){
+  await fetch('/api/jobs/clear', { method:'POST' });
+  refreshJobs();
+}
+async function cancelJob(jid){
+  await fetch('/api/cancel', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: jid}) });
+  refreshJobs();
+}
 function stopGenerate(){
   if (genJobId){
     fetch('/api/cancel', { method:'POST',
@@ -1475,6 +1613,7 @@ async function generate(){
   genJobId = 'job-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
   payload.job_id = genJobId;
   $('go').textContent = '中止生成';
+  $('toBgBtn').style.display = '';
   st.textContent = '正在请求中，再次点击按钮可中止本次请求……';
   const t0 = Date.now();
   const timer = setInterval(() => { st.textContent = `正在请求中，已等待 ${((Date.now()-t0)/1000).toFixed(0)} 秒……`; }, 1000);
@@ -1492,7 +1631,8 @@ async function generate(){
     clearInterval(timer);
     if (e && e.name === 'AbortError'){ st.className='status'; st.textContent = '已中止本次请求'; }
     else { st.className='status err'; st.textContent = '请求异常：' + e + '（服务是否还在运行？）'; }
-  }finally{ $('go').disabled = false; $('go').textContent = '生成（约 60~90 秒 / 张）'; genAbort = null; }
+  }finally{ $('go').disabled = false; $('go').textContent = '生成（约 60~90 秒 / 张）'; genAbort = null;
+    $('toBgBtn').style.display = 'none'; toggleJobsPanel(true); }
 }
 
 function card(im){
