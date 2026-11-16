@@ -1,0 +1,6 @@
+# 本地私密数据（含 API 密钥，勿提交）
+config.json
+favorites.json
+outputs/
+__pycache__/
+*.pyc
