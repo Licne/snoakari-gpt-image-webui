@@ -284,7 +284,7 @@ def read_response(resp, job_id=""):
 
 def fetch_bytes(url):
     req = urllib.request.Request(url, headers={"User-Agent": "gpt-image-webui/1.1"})
-    with _opener.open(req, timeout=120) as r:
+    with _opener.open(req, timeout=REQUEST_TIMEOUT) as r:
         return r.read()
 
 
@@ -364,7 +364,15 @@ def save_images(resp_json, fmt, prefix=""):
         if item.get("b64_json"):
             blob = base64.b64decode(item["b64_json"])
         elif item.get("url"):
-            blob = fetch_bytes(item["url"])
+            log(f"第 {idx} 张为 URL 结果，开始下载（可能较慢，耐心等待）")
+            try:
+                t_dl = time.time()
+                blob = fetch_bytes(item["url"])
+                log(f"第 {idx} 张下载完成，耗时 {round(time.time() - t_dl, 1)}s")
+            except Exception as e:
+                raise RuntimeError(
+                    f"第 {idx} 张结果图下载失败：{e}\n"
+                    f"图片很可能已在中转站生成（已计费），请尽快到中转站后台取回，直链：{item['url']}")
         else:
             continue
         stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -508,6 +516,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):
         pass  # 静默访问日志
+
+    def handle_error(self, request, client_address):
+        import sys as _sys
+        exc = _sys.exc_info()[1]
+        # 浏览器断开 keep-alive 连接属正常现象，静默处理
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         if isinstance(body, (dict, list)):
