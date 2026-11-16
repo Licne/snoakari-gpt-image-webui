@@ -321,9 +321,8 @@ def read_response(resp, job_id=""):
                 break
             buf += chunk
     finally:
-        if job_id:
-            with _JOBS_LOCK:
-                _ACTIVE_JOBS.pop(job_id, None)
+        # 注意：不在此处清理 _ACTIVE_JOBS，任务注册表生命周期由 generate handler 统一管理，
+        # 保证下载结果图阶段仍可中止
         try:
             resp.close()
         except Exception:
@@ -331,10 +330,43 @@ def read_response(resp, job_id=""):
     return json.loads(bytes(buf).decode("utf-8"))
 
 
-def fetch_bytes(url):
+def _job_cancelled(job_id):
+    if not job_id:
+        return False
+    with _JOBS_LOCK:
+        e = _ACTIVE_JOBS.get(job_id)
+        return e is not None and e["cancelled"]
+
+
+def fetch_bytes(url, job_id=""):
+    if _job_cancelled(job_id):
+        raise ValueError("已中止")
     req = urllib.request.Request(url, headers={"User-Agent": "gpt-image-webui/1.1"})
-    with _opener.open(req, timeout=REQUEST_TIMEOUT) as r:
-        return r.read()
+    r = _opener.open(req, timeout=REQUEST_TIMEOUT)
+    # 注册下载 socket，让中止能掐断阻塞中的下载
+    if job_id:
+        with _JOBS_LOCK:
+            e = _ACTIVE_JOBS.get(job_id)
+            if e is not None and e["cancelled"]:
+                r.close()
+                raise ValueError("已中止")
+            if e is not None:
+                e["resp"] = r
+    try:
+        data = r.read()
+    finally:
+        if job_id:
+            with _JOBS_LOCK:
+                e = _ACTIVE_JOBS.get(job_id)
+                if e is not None and e.get("resp") is r:
+                    e["resp"] = None
+        try:
+            r.close()
+        except Exception:
+            pass
+    if _job_cancelled(job_id):
+        raise ValueError("已中止")
+    return data
 
 
 def build_multipart(fields, files):
@@ -402,7 +434,7 @@ def fs_safe(s):
     return re.sub(r'[\\/:*?"<>|\s]+', "_", str(s or "")).strip("_") or "x"
 
 
-def save_images(resp_json, fmt, prefix=""):
+def save_images(resp_json, fmt, prefix="", job_id=""):
     """解析响应（b64_json 或 url），落盘并返回 [{name,url,bytes}]。
     扩展名按实际字节魔数判断（中转站可能无视 output_format 始终返回 PNG）。
     prefix 附加在时间戳前，形如 档位_模型_分组。"""
@@ -416,7 +448,7 @@ def save_images(resp_json, fmt, prefix=""):
             log(f"第 {idx} 张为 URL 结果，开始下载（可能较慢，耐心等待）")
             try:
                 t_dl = time.time()
-                blob = fetch_bytes(item["url"])
+                blob = fetch_bytes(item["url"], job_id)
                 log(f"第 {idx} 张下载完成，耗时 {round(time.time() - t_dl, 1)}s")
             except Exception as e:
                 raise RuntimeError(
@@ -540,7 +572,7 @@ def do_generate(cfg, payload):
             resp_json = read_response(r, job_id)
 
     name_prefix = f"{fs_safe(size_tier(size))}_{fs_safe(model)}_{fs_safe(cfg.get('group') or '')}"
-    images = save_images(resp_json, fmt, prefix=name_prefix)
+    images = save_images(resp_json, fmt, prefix=name_prefix, job_id=job_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = []
     for img in images:
@@ -914,6 +946,10 @@ class Handler(BaseHTTPRequestHandler):
                 log(f"生成失败：{type(e).__name__}: {e}")
                 _bg_finish(jid, "failed", error=f"{type(e).__name__}: {e}")
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            finally:
+                # 任务全周期结束（含结果图下载），清理中止注册表
+                with _JOBS_LOCK:
+                    _ACTIVE_JOBS.pop(jid, None)
             return
         except Exception as e:
             self._send(200, {"error": f"{type(e).__name__}: {e}"})
@@ -1571,6 +1607,8 @@ async function cancelJob(jid){
   await fetch('/api/cancel', { method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: jid}) });
   refreshJobs();
+  setTimeout(refreshJobs, 800);  // 服务端感知断开需要片刻，补刷一次
+  setTimeout(refreshJobs, 2500);
 }
 function stopGenerate(){
   if (genJobId){
