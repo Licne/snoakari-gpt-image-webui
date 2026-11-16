@@ -69,7 +69,27 @@ MODELS = [
     "grok-imagine-image", "grok-imagine-image-2.0",
     "grok-imagine-image-quality", "grok-4.7-build-fast",
 ]
-SIZE_PRESETS = ["auto", "1024x1024", "1024x1536", "1536x1024", "2048x1152", "3840x2160"]
+SIZE_PRESETS = ["auto",
+    "1024x1024", "2048x2048", "2880x2880",            # 1:1
+    "1536x1024", "2160x1440", "3456x2304",            # 3:2
+    "1024x1536", "1440x2160", "2304x3456",            # 2:3
+    "1280x720", "2560x1440", "3840x2160",             # 16:9
+    "720x1280", "1440x2560", "2160x3840",            # 9:16
+    "1024x768", "2048x1536", "3200x2400",             # 4:3
+    "768x1024", "1536x2048", "2400x3200",             # 3:4
+    "1280x544", "2560x1088", "3840x1600",             # 21:9
+]
+SIZE_GROUPS = [
+    ("自动", [("auto", "auto（自动）")]),
+    ("1:1", [("1024x1024", "1024x1024（1K）"), ("2048x2048", "2048x2048（2K）"), ("2880x2880", "2880x2880（4K）")]),
+    ("3:2", [("1536x1024", "1536x1024（1K）"), ("2160x1440", "2160x1440（2K）"), ("3456x2304", "3456x2304（4K）")]),
+    ("2:3", [("1024x1536", "1024x1536（1K）"), ("1440x2160", "1440x2160（2K）"), ("2304x3456", "2304x3456（4K）")]),
+    ("16:9", [("1280x720", "1280x720（1K）"), ("2560x1440", "2560x1440（2K）"), ("3840x2160", "3840x2160（4K）")]),
+    ("9:16", [("720x1280", "720x1280（1K）"), ("1440x2560", "1440x2560（2K）"), ("2160x3840", "2160x3840（4K）")]),
+    ("4:3", [("1024x768", "1024x768（1K）"), ("2048x1536", "2048x1536（2K）"), ("3200x2400", "3200x2400（4K）")]),
+    ("3:4", [("768x1024", "768x1024（1K）"), ("1536x2048", "1536x2048（2K）"), ("2400x3200", "2400x3200（4K）")]),
+    ("21:9", [("1280x544", "1280x544（1K）"), ("2560x1088", "2560x1088（2K）"), ("3840x1600", "3840x1600（4K）")]),
+]
 QUALITIES = ["auto", "low", "medium", "high", "xhigh", "max"]
 BACKGROUNDS = ["auto", "transparent", "opaque"]
 FORMATS = ["png", "jpeg", "webp"]
@@ -495,7 +515,7 @@ class Handler(BaseHTTPRequestHandler):
         elif self.path == "/api/config":
             cfg = self.server.app_config
             self._send(200, {"model": cfg["model"], "models": cfg.get("models") or MODELS,
-                             "sizes": SIZE_PRESETS,
+                             "sizes": SIZE_PRESETS, "size_groups": SIZE_GROUPS,
                              "qualities": QUALITIES, "backgrounds": BACKGROUNDS,
                              "formats": FORMATS, "moderations": MODERATIONS,
                              "group": cfg.get("group") or "",
@@ -1102,10 +1122,9 @@ const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
   if (!(cfg.models||[]).includes(m0)) m0 = (cfg.models||[])[0] || '';
   $('model').innerHTML = (cfg.models||[]).map(m => `<option value="${m}">${m}</option>`).join('');
   $('model').value = m0;
-  const SIZE_LABELS = {'auto':'auto（自动）','1024x1024':'1024x1024（方形）','1024x1536':'1024x1536（竖版）',
-    '1536x1024':'1536x1024（横版）','2048x1152':'2048x1152（2K）','3840x2160':'3840x2160（4K UHD）'};
-  $('size').innerHTML = cfg.sizes.map(s => `<option value="${s}">${SIZE_LABELS[s] || s}</option>`).join('')
-    + `<option value="custom">自定义…</option>`;
+  $('size').innerHTML = (cfg.size_groups || []).map(g =>
+    `<optgroup label="${g[0]}">` + g[1].map(it => `<option value="${it[0]}">${it[1]}</option>`).join('') + '</optgroup>'
+  ).join('') + `<option value="custom">自定义…</option>`;
   $('n').innerHTML = Array.from({length:10},(_,i)=>`<option>${i+1}</option>`).join('');
   $('quality').innerHTML = cfg.qualities.map(q => `<option value="${q}">${q==='auto'?'auto（默认）':q}</option>`).join('');
   $('background').innerHTML = cfg.backgrounds.map(b => `<option value="${b}">${b==='auto'?'auto（默认）':b==='transparent'?'transparent（透明底）':'opaque（不透明）'}</option>`).join('');
