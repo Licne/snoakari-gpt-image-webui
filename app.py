@@ -828,13 +828,13 @@ body { margin:0; background:var(--bg); color:var(--text);
 aside { width:430px; min-width:360px; background:var(--panel); border-right:1px solid var(--line);
         padding:16px 20px; overflow-y:auto; }
 main { flex:1; overflow-y:auto; padding:18px 24px; }
-.head { display:flex; flex-direction:column; gap:10px; }
-.headTop { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
+.head { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+.headTop { width:100%; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
 h1 { font-size:18px; margin:0 0 2px; }
 h1 span { color:var(--acc); }
 .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
 #groupSel { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px;
-  padding:6px 10px; font-size:12.5px; width:100%; }
+  padding:6px 10px; font-size:12.5px; width:auto; max-width:220px; }
 .gear { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
         border-radius:8px; padding:5px 10px; cursor:pointer; font-size:15px; line-height:1; }
 .gear:hover { color:var(--acc); border-color:var(--acc); }
@@ -845,6 +845,8 @@ h1 span { color:var(--acc); }
 label { display:block; font-size:12px; color:var(--muted); margin:12px 0 5px; }
 label small { color:#6b7672; }
 textarea, select, input[type=text] { width:100%; }
+#sizeRatio, #sizeTier { width:auto; max-width:100%; }
+#sizeTier { margin-left:8px; }
 textarea { background:var(--panel2); color:var(--text); border:1px solid var(--line);
    border-radius:9px; padding:10px; font-size:14px; min-height:88px; resize:vertical;
    font-family:inherit; }
