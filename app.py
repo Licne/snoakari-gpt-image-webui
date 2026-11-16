@@ -813,7 +813,7 @@ INDEX_HTML = r"""<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>gpt-image WebUI</title>
+<title>SnoAkari gpt-image WebUI</title>
 <style>
 :root { --bg:#111413; --panel:#1a1f1d; --panel2:#222826; --line:#2c3431;
         --text:#e8ece9; --muted:#9aa5a0; --acc:#34d399; --acc2:#10b981; }
@@ -828,12 +828,13 @@ body { margin:0; background:var(--bg); color:var(--text);
 aside { width:430px; min-width:360px; background:var(--panel); border-right:1px solid var(--line);
         padding:16px 20px; overflow-y:auto; }
 main { flex:1; overflow-y:auto; padding:18px 24px; }
-.head { display:flex; align-items:center; justify-content:space-between; }
+.head { display:flex; flex-direction:column; gap:10px; }
+.headTop { display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
 h1 { font-size:18px; margin:0 0 2px; }
 h1 span { color:var(--acc); }
 .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
 #groupSel { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px;
-  padding:6px 10px; font-size:12.5px; max-width:150px; }
+  padding:6px 10px; font-size:12.5px; width:100%; }
 .gear { background:var(--panel2); border:1px solid var(--line); color:var(--muted);
         border-radius:8px; padding:5px 10px; cursor:pointer; font-size:15px; line-height:1; }
 .gear:hover { color:var(--acc); border-color:var(--acc); }
@@ -889,10 +890,13 @@ h2 { font-size:14px; color:var(--muted); font-weight:600; margin:8px 0 12px; }
    padding:10px; display:flex; flex-direction:column; gap:8px; }
 .card img { width:100%; border-radius:8px; cursor:zoom-in; background:#000; }
 .card img.masked { filter: blur(18px) brightness(.55) saturate(.6); }
-.card.fav .meta span:first-child::before { content: "★ "; color: #fbbf24; }
+.card.fav .meta > span:first-child::before { content: "★ "; color: #fbbf24; }
 body.masked .card img { cursor:pointer; }
 .maskBtn { float:right; font-size:12px; font-weight:600; padding:5px 12px; border-radius:999px;
   border:1px solid var(--line); background:var(--panel2); color:var(--muted); cursor:pointer; }
+.chip { float:right; font-size:12px; font-weight:600; padding:5px 12px; border-radius:999px;
+  border:1px solid var(--line); background:var(--panel2); color:var(--muted); cursor:pointer; margin-left:10px; }
+.chip.on { color:#fbbf24; border-color:#fbbf24; background:rgba(251,191,36,.08); }
 .maskBtn.on { background:var(--acc); border-color:var(--acc); color:#0b1512; }
 .card .meta { font-size:11.5px; color:var(--muted); display:flex; justify-content:space-between; gap:6px; overflow:hidden; white-space:nowrap;
   align-items:baseline; }
@@ -925,12 +929,14 @@ body.masked .card img { cursor:pointer; }
 <div class="layout">
 <aside>
   <div class="head">
-    <div>
-      <h1>gpt-image <span>WebUI</span></h1>
-      <div class="sub">本地调用 NewAPI 中转站 · 参数图形化配置</div>
+    <div class="headTop">
+      <div>
+        <h1>SnoAkari <span>gpt-image WebUI</span></h1>
+        <div class="sub">本地调用 NewAPI 中转站 · 参数图形化配置</div>
+      </div>
+      <button class="gear" onclick="openSettings()" title="设置" aria-label="设置">⚙</button>
     </div>
     <select id="groupSel" title="切换中转站分组" onchange="switchGroupHeader()"></select>
-    <button class="gear" onclick="openSettings()" title="设置" aria-label="设置">⚙</button>
   </div>
 
   <div class="tabs">
@@ -963,7 +969,8 @@ body.masked .card img { cursor:pointer; }
     <div class="row">
       <div>
         <label>尺寸</label>
-        <select id="size"></select>
+        <select id="sizeRatio"></select>
+        <select id="sizeTier" style="display:none"></select>
       </div>
       <div id="customSizeBox" style="display:none">
         <label>自定义 WxH</label>
@@ -1015,7 +1022,7 @@ body.masked .card img { cursor:pointer; }
   <h2>本次结果 <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button></h2>
   <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
   <h2 style="margin-top:24px">历史记录（outputs/ 目录）
-    <label style="font-size:13px;font-weight:400;cursor:pointer;margin-left:14px"><input type="checkbox" id="favOnly" style="vertical-align:-2px"> 只看收藏</label>
+    <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
   </h2>
   <div class="grid" id="history"><div class="empty">加载中……</div></div>
 </main>
@@ -1122,9 +1129,14 @@ const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
   if (!(cfg.models||[]).includes(m0)) m0 = (cfg.models||[])[0] || '';
   $('model').innerHTML = (cfg.models||[]).map(m => `<option value="${m}">${m}</option>`).join('');
   $('model').value = m0;
-  $('size').innerHTML = (cfg.size_groups || []).map(g =>
-    `<optgroup label="${g[0]}">` + g[1].map(it => `<option value="${it[0]}">${it[1]}</option>`).join('') + '</optgroup>'
-  ).join('') + `<option value="custom">自定义…</option>`;
+  const ratioMap = {};
+  $('sizeRatio').innerHTML = `<option value="auto">auto（自动）</option>`
+    + (cfg.size_groups || []).filter(g => g[0] !== '自动').map(g => {
+      ratioMap[g[0]] = g[1].map(it => it[0]);
+      return `<option value="${g[0]}">${g[0]}</option>`; }).join('')
+    + `<option value="custom">自定义…</option>`;
+  window.RATIO_MAP = ratioMap;
+  $('sizeTier').innerHTML = ['1K','2K','4K'].map((t,i)=>`<option value="${i}">${t}</option>`).join('');
   $('n').innerHTML = Array.from({length:10},(_,i)=>`<option>${i+1}</option>`).join('');
   $('quality').innerHTML = cfg.qualities.map(q => `<option value="${q}">${q==='auto'?'auto（默认）':q}</option>`).join('');
   $('background').innerHTML = cfg.backgrounds.map(b => `<option value="${b}">${b==='auto'?'auto（默认）':b==='transparent'?'transparent（透明底）':'opaque（不透明）'}</option>`).join('');
@@ -1134,7 +1146,16 @@ const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
   // 恢复上次参数（浏览器本地记忆）
   try{
     const saved = JSON.parse(localStorage.getItem('gptImageParams') || '{}');
-    ['model','size','customSize','n','quality','background','format','moderation','prompt'].forEach(k=>{
+    if (saved.size && saved.sizeRatio === undefined){
+      if (saved.size === 'auto'){ saved.sizeRatio = 'auto'; }
+      else {
+        for (const [r, vals] of Object.entries(window.RATIO_MAP || {})){
+          const i = vals.indexOf(saved.size);
+          if (i >= 0){ saved.sizeRatio = r; saved.sizeTier = String(i); break; }
+        }
+      }
+    }
+    ['model','sizeRatio','sizeTier','customSize','n','quality','background','format','moderation','prompt'].forEach(k=>{
       if (saved[k] !== undefined && $(k)) $(k).value = saved[k];
     });
     if (saved.comp !== undefined){ $('comp').value = saved.comp; }
@@ -1177,8 +1198,10 @@ function onModelChange(){
   $('modelHint').textContent = note;
 }
 function onSizeChange(){
-  const custom = $('size').value === 'custom';
+  const r = $('sizeRatio').value;
+  const custom = r === 'custom';
   $('customSizeBox').style.display = custom ? '' : 'none';
+  $('sizeTier').style.display = (custom || r === 'auto') ? 'none' : '';
   $('sizeHint').textContent = custom
     ? '自定义尺寸需满足：宽高均为 16 的倍数、宽高比 1:3~3:1；最长边与总像素不限制，能否生效由上游模型决定'
     : '';
@@ -1193,11 +1216,11 @@ function onFormatChange(){
 $('comp').oninput = () => $('compVal').textContent = $('comp').value;
 $('prompt').addEventListener('input', persistParams);
 $('model').onchange = onModelChange;
-$('size').onchange = onSizeChange;
+$('sizeRatio').onchange = onSizeChange; $('sizeTier').onchange = onSizeChange;
 $('format').onchange = onFormatChange;
 
 function persistParams(){
-  const p = { mode, model:$('model').value, size:$('size').value,
+  const p = { mode, model:$('model').value, sizeRatio:$('sizeRatio').value, sizeTier:$('sizeTier').value,
     customSize:$('customSize').value, n:$('n').value, quality:$('quality').value,
     background:$('background').value, format:$('format').value,
     moderation:$('moderation').value, comp:$('comp').value, prompt:$('prompt').value };
@@ -1344,9 +1367,14 @@ async function fileToB64(f){
 }
 
 function currentSize(){
-  if ($('size').value !== 'custom') return $('size').value;
-  const v = ($('customSize').value || '').trim().toLowerCase();
-  return v || 'auto';
+  const r = $('sizeRatio').value;
+  if (r === 'auto') return 'auto';
+  if (r === 'custom'){
+    const v = ($('customSize').value || '').trim().toLowerCase();
+    return v || 'auto';
+  }
+  const vals = (window.RATIO_MAP || {})[r] || [];
+  return vals[+($('sizeTier').value || 0)] || 'auto';
 }
 
 function stopGenerate(){
@@ -1447,10 +1475,11 @@ async function loadHistory(){
     bindCard();
   }catch(e){ $('history').innerHTML = '<div class="empty">历史加载失败</div>'; }
 }
-$('favOnly').onchange = () => {
-  favOnly = $('favOnly').checked;
+function toggleFavOnly(){
+  favOnly = !favOnly;
+  $('favOnlyBtn').classList.toggle('on', favOnly);
   loadHistory();
-};
+}
 
 function post(url, body){
   return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'},
