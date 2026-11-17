@@ -246,6 +246,7 @@ def _bg_register(job_id, payload, cfg):
             "t0": time.time(), "t_end": None,
             "status": "running", "error": "", "images": [], "elapsed": 0,
             "bg": False,   # 仅点“转入后台”后进入任务面板
+            "payload": dict(payload),  # 完整参数：失败后可供重试（成功/中止时释放）
         }
         done = [k for k, v in _BG_JOBS.items() if v["status"] != "running"]
         while len(_BG_JOBS) > 60 and done:
@@ -264,6 +265,8 @@ def _bg_finish(job_id, status, images=None, elapsed=None, error=""):
         e["images"] = images or []
         e["error"] = error or ""
         e["elapsed"] = elapsed if elapsed is not None else round(e["t_end"] - e["t0"], 1)
+        if status != "failed":
+            e.pop("payload", None)  # 只有失败任务保留参数供重试
 _JOBS_LOCK = threading.Lock()
 
 
@@ -497,6 +500,31 @@ def log(msg):
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
+def run_bg_generate(cfg, payload, jid):
+    """后台执行生成任务（重试）：不回写 HTTP 响应，结果只进任务面板"""
+    try:
+        result = do_generate(cfg, payload)
+        _bg_finish(jid, "done",
+                   images=[im.get("name") for im in (result.get("images") or [])],
+                   elapsed=result.get("elapsed"))
+    except urllib.error.HTTPError as e:
+        try:
+            e.read()
+        except Exception:
+            pass
+        log(f"后台任务失败 job={jid}：上游返回 HTTP {e.code}")
+        _bg_finish(jid, "failed", error=f"上游返回 HTTP {e.code}")
+    except ValueError as e:
+        log(f"后台任务结束 job={jid}：{e}")
+        _bg_finish(jid, "cancelled" if str(e) == "已中止" else "failed", error=str(e))
+    except Exception as e:
+        log(f"后台任务失败 job={jid}：{type(e).__name__}: {e}")
+        _bg_finish(jid, "failed", error=f"{type(e).__name__}: {e}")
+    finally:
+        with _JOBS_LOCK:
+            _ACTIVE_JOBS.pop(jid, None)
+
+
 def do_generate(cfg, payload):
     """payload: {mode, prompt, model, size, n, quality, background,
                  output_format, output_compression, moderation, images, mask}"""
@@ -682,7 +710,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
         elif self.path == "/api/jobs":
             with _JOBS_LOCK:
-                jobs = [v for v in _BG_JOBS.values() if v.get("bg")]
+                jobs = [{k: v for k, v in e.items() if k != "payload"}
+                        for e in _BG_JOBS.values() if e.get("bg")]
             jobs.sort(key=lambda x: (0 if x["status"] == "running" else 1, -(x["t_end"] or x["t0"])))
             self._send(200, {"jobs": jobs[:30]})
         elif self.path.startswith("/api/history"):
@@ -934,6 +963,38 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
+        if self.path == "/api/jobs/retry":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                old = (p.get("job_id") or "").strip()
+                with _JOBS_LOCK:
+                    e = _BG_JOBS.get(old)
+                    if e is None:
+                        return self._send(200, {"error": "任务不存在"})
+                    if e["status"] == "running":
+                        return self._send(200, {"error": "任务仍在进行中，不能重试"})
+                    pl = e.get("payload")
+                    if not pl:
+                        return self._send(200, {"error": "原始参数已清理，无法重试；请在主界面重新发起"})
+                    pl = dict(pl)
+                    e.pop("payload", None)  # 参数移交给新任务，避免双份大图驻留
+                jid = f"job-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
+                pl["job_id"] = jid
+                _bg_register(jid, pl, self.server.app_config)
+                with _JOBS_LOCK:
+                    ne = _BG_JOBS.get(jid)
+                    if ne is not None:
+                        ne["bg"] = True  # 从面板发起的重试，直接进面板
+                threading.Thread(target=run_bg_generate,
+                                 args=(self.server.app_config, pl, jid),
+                                 daemon=True).start()
+                log(f"重试任务 {old} -> {jid}")
+                self._send(200, {"ok": True, "job_id": jid})
+            except Exception as ex:
+                self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
+            return
+
         if self.path == "/api/jobs/delete":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -1085,6 +1146,7 @@ select, input[type=text] { background:var(--panel2); color:var(--text); border:1
 .jobItem .can { color:var(--muted); }
 .jobItem .jid { flex:1; font-size:11px; color:var(--muted); font-family:Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .jobItem .del { color:var(--muted); text-decoration:none; font-size:13px; padding:0 2px; }
+.jobItem .retry { color:var(--acc); text-decoration:none; font-size:12px; flex-shrink:0; }
 .jobItem .del:hover { color:#f87171; }
 .jobItem .jMid { margin-top:2px; }
 .jobItem .jErr { margin-top:2px; color:#f87171; font-size:11px; word-break:break-all; }
@@ -1640,6 +1702,7 @@ async function refreshJobs(force){
         <div class="jTop">
           <span class="${cls}">● ${label}</span>
           <span class="jid">${t.id}</span>
+          ${t.status==='failed' ? `<a class="retry" href="javascript:void(0)" onclick="retryJob('${t.id}')" title="用原参数重新生成">重试</a>` : ''}
           <a class="del" href="javascript:void(0)" onclick="jobX('${t.id}','${t.status}')" title="${t.status==='running'?'中止任务':'从列表移除'}">✕</a>
         </div>
         <div class="jMid">${t.mode==='edit'?'改图':'文生图'} · ${t.model} · ${t.size} · ${tstr}${imgs}</div>
@@ -1667,6 +1730,12 @@ async function cancelJob(jid){
   refreshJobs();
   setTimeout(refreshJobs, 800);  // 服务端感知断开需要片刻，补刷一次
   setTimeout(refreshJobs, 2500);
+}
+async function retryJob(jid){
+  const r = await (await fetch('/api/jobs/retry', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: jid}) })).json();
+  if (r.error){ alert('重试失败：' + r.error); return; }
+  refreshJobs();
 }
 function jobX(jid, status){
   if (status === 'running'){ cancelJob(jid); return; }
