@@ -591,20 +591,26 @@ def do_generate(cfg, payload):
             "model": model, "size": size, "images": out}
 
 
+class QuietServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer + 静默浏览器断连噪音（handle_error 定义在 Server 类上）"""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        exc = sys.exc_info()[1]
+        # 浏览器断开 keep-alive 连接属正常现象（10053/10054），静默处理
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError,
+                            BrokenPipeError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "gpt-image-webui/1.1"
 
     def log_message(self, fmt, *args):
         pass  # 静默访问日志
-
-    def handle_error(self, request, client_address):
-        import sys as _sys
-        exc = _sys.exc_info()[1]
-        # 浏览器断开 keep-alive 连接属正常现象，静默处理
-        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
-            return
-        super().handle_error(request, client_address)
 
     def _send(self, code, body, ctype="application/json; charset=utf-8"):
         if isinstance(body, (dict, list)):
@@ -1881,7 +1887,7 @@ def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     try:
-        httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+        httpd = QuietServer((args.host, args.port), Handler)
     except OSError as e:
         print(f"[gpt-image WebUI] 启动失败：端口 {args.port} 被占用（{e}）")
         print("[gpt-image WebUI] 常见原因：另一个副本还在运行（例如桌面旧版）。请先关闭它的黑色窗口，再重试本副本；")
