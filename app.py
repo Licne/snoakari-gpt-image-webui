@@ -914,6 +914,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
+        if self.path == "/api/jobs/delete":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                jid = (p.get("job_id") or "").strip()
+                with _JOBS_LOCK:
+                    e = _BG_JOBS.get(jid)
+                    if e is not None and e["status"] == "running":
+                        return self._send(200, {"error": "进行中的任务请先中止再移除"})
+                    _BG_JOBS.pop(jid, None)
+                self._send(200, {"ok": True})
+            except Exception as ex:
+                self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
+            return
+
         if self.path == "/api/jobs/clear":
             with _JOBS_LOCK:
                 for k in [k for k, v in _BG_JOBS.items() if v["status"] != "running"]:
@@ -1041,13 +1056,19 @@ select, input[type=text] { background:var(--panel2); color:var(--text); border:1
 .jobsPanel { margin-top:12px; border:1px solid var(--line); border-radius:10px; background:var(--panel2); padding:10px 12px; }
 .jobsHead { display:flex; justify-content:space-between; font-size:12px; color:var(--muted); margin-bottom:8px; }
 .jobsHead a { color:var(--acc); text-decoration:none; margin-left:8px; }
-.jobItem { padding:7px 8px; border-bottom:1px dashed var(--line); font-size:12px; color:var(--text); line-height:1.6; }
+.jobItem { padding:8px 10px; border-bottom:1px dashed var(--line); font-size:12px; color:var(--text); line-height:1.5; }
 .jobItem:last-child { border-bottom:0; }
+.jobItem .jTop { display:flex; align-items:center; gap:8px; }
 .jobItem .run { color:var(--acc); }
 .jobItem .ok { color:#7dd3fc; }
 .jobItem .fail { color:#f87171; }
 .jobItem .can { color:var(--muted); }
-.jobItem .del { color:#f87171; text-decoration:none; float:right; }
+.jobItem .jid { flex:1; font-size:11px; color:var(--muted); font-family:Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.jobItem .del { color:var(--muted); text-decoration:none; font-size:13px; padding:0 2px; }
+.jobItem .del:hover { color:#f87171; }
+.jobItem .jMid { margin-top:2px; }
+.jobItem .jErr { margin-top:2px; color:#f87171; font-size:11px; word-break:break-all; }
+.jobItem .jSub { margin-top:2px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .status { margin-top:12px; font-size:13px; color:var(--muted); min-height:20px;
    white-space:pre-wrap; word-break:break-all; }
 .status.err { color:#f87171; }
@@ -1591,9 +1612,15 @@ async function refreshJobs(force){
       const imgs = (t.images||[]).length ? `，${t.images.length} 张已入库` : '';
       const err = t.error ? `，${t.error.slice(0,60)}` : '';
       return `<div class="jobItem">
-        <a class="del" href="javascript:void(0)" onclick="cancelJob('${t.id}')" title="中止">✕</a>
-        <span class="${cls}">● ${label}</span> ${t.mode==='edit'?'改图':'文生图'} · ${t.model} · ${t.size} · ${tstr}${imgs}${err}<br>
-        <span style="color:var(--muted)">${t.pshow||''}</span></div>`;
+        <div class="jTop">
+          <span class="${cls}">● ${label}</span>
+          <span class="jid">${t.id}</span>
+          <a class="del" href="javascript:void(0)" onclick="jobX('${t.id}','${t.status}')" title="${t.status==='running'?'中止任务':'从列表移除'}">✕</a>
+        </div>
+        <div class="jMid">${t.mode==='edit'?'改图':'文生图'} · ${t.model} · ${t.size} · ${tstr}${imgs}</div>
+        ${t.error ? `<div class="jErr">${t.error.slice(0,80)}</div>` : ''}
+        <div class="jSub">${t.pshow||''}</div>
+      </div>`;
     }).join('') || '<div class="jobItem" style="color:var(--muted)">暂无任务</div>';
     $('jobsRun').textContent = running;
     if (running === 0 && !force && !jobs.some(t => t.status==='done' && !(seenDone||{})[t.id])){
@@ -1615,6 +1642,13 @@ async function cancelJob(jid){
   refreshJobs();
   setTimeout(refreshJobs, 800);  // 服务端感知断开需要片刻，补刷一次
   setTimeout(refreshJobs, 2500);
+}
+function jobX(jid, status){
+  if (status === 'running'){ cancelJob(jid); return; }
+  // 已结束的任务：从列表移除
+  fetch('/api/jobs/delete', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: jid}) })
+    .then(() => refreshJobs()).catch(() => {});
 }
 function stopGenerate(){
   if (genJobId){
