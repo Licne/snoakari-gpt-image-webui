@@ -342,7 +342,7 @@ def _job_cancelled(job_id):
 def fetch_bytes(url, job_id=""):
     if _job_cancelled(job_id):
         raise ValueError("已中止")
-    req = urllib.request.Request(url, headers={"User-Agent": "gpt-image-webui/1.1"})
+    req = urllib.request.Request(url, headers={"User-Agent": f"gpt-image-webui/{APP_VER}"})
     r = _opener.open(req, timeout=REQUEST_TIMEOUT)
     # 注册下载 socket，让中止能掐断阻塞中的下载
     if job_id:
@@ -592,6 +592,9 @@ def do_generate(cfg, payload):
             "model": model, "size": size, "images": out}
 
 
+APP_VER = "1.3.0"  # 应用版本号：每次发布更新；展示于设置弹窗底部
+
+
 class QuietServer(ThreadingHTTPServer):
     """ThreadingHTTPServer + 静默浏览器断连噪音（handle_error 定义在 Server 类上）"""
     daemon_threads = True
@@ -608,7 +611,7 @@ class QuietServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
-    server_version = "gpt-image-webui/1.1"
+    server_version = f"gpt-image-webui/{APP_VER}"
 
     def log_message(self, fmt, *args):
         pass  # 静默访问日志
@@ -628,7 +631,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/" or self.path.startswith("/index"):
-            self._send(200, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
+            self._send(200, INDEX_HTML.replace("__APP_VER__", APP_VER).encode("utf-8"),
+                      "text/html; charset=utf-8")
         elif self.path.startswith("/outputs/"):
             name = os.path.basename(self.path[len("/outputs/"):])
             ext = os.path.splitext(name)[1].lower()
@@ -1121,7 +1125,8 @@ body.masked .card img { cursor:pointer; }
 .modal { position:fixed; inset:0; background:#000a; display:none; align-items:center;
    justify-content:center; z-index:60; }
 .modal .box { background:var(--panel); border:1px solid var(--line); border-radius:14px;
-   width:min(440px,92vw); padding:20px; }
+   width:min(440px,92vw); max-height:88vh; overflow-y:auto; padding:20px; }
+.modal .ver { margin-top:14px; text-align:center; color:var(--muted); font-size:11px; }
 .modal h3 { margin:0 0 4px; font-size:15px; }
 .modal .box .sub { margin-bottom:10px; }
 .modal .btns { display:flex; gap:10px; margin-top:16px; }
@@ -1299,6 +1304,7 @@ body.masked .card img { cursor:pointer; }
       <button onclick="closeSettings()">关闭</button>
     </div>
     <div class="status" id="setStatus"></div>
+    <div class="ver">SnoAkari gpt-image WebUI · v__APP_VER__</div>
   </div>
 </div>
 
