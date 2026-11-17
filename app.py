@@ -620,7 +620,7 @@ def do_generate(cfg, payload):
             "model": model, "size": size, "images": out}
 
 
-APP_VER = "1.3.0"  # 应用版本号：每次发布更新；展示于设置弹窗底部
+APP_VER = "1.3.1"  # 应用版本号：每次发布更新；展示于设置弹窗底部
 
 
 class QuietServer(ThreadingHTTPServer):
@@ -1372,7 +1372,7 @@ body.masked .card img { cursor:pointer; }
 
 <script>
 let mode = 'gen', files = [], maskFile = null;
-let genAbort = null, genJobId = '', genBgNow = false;
+let genAbort = null, genJobId = '', genBgNow = false, genBusy = false;
 const $ = id => document.getElementById(id);
 const MODEL_NOTES = {
   'gpt-image-2': '旗舰单模型，画质 low/medium/high',
@@ -1754,6 +1754,9 @@ function stopGenerate(){
 
 async function generate(){
   if (genAbort){ stopGenerate(); return; }
+  if (genBusy) return;   // 参数准备中（改图需编码大图），防快速连点重复提交
+  genBusy = true;
+  try {   // 包住全流程：任何路径结束（校验早退/中止/完成）都解除互斥
   const prompt = $('prompt').value.trim();
   const st = $('status');
   st.className = 'status'; st.textContent = '';
@@ -1808,6 +1811,7 @@ async function generate(){
     $('toBgBtn').style.display = 'none';
     if (genBgNow){ toggleJobsPanel(true); } else { refreshJobs(); }
     genBgNow = false; }
+  } finally { genBusy = false; }
 }
 
 function card(im){
