@@ -245,6 +245,7 @@ def _bg_register(job_id, payload, cfg):
             "pshow": prompt[:30] + ("…" if len(prompt) > 30 else ""),
             "t0": time.time(), "t_end": None,
             "status": "running", "error": "", "images": [], "elapsed": 0,
+            "bg": False,   # 仅点“转入后台”后进入任务面板
         }
         done = [k for k, v in _BG_JOBS.items() if v["status"] != "running"]
         while len(_BG_JOBS) > 60 and done:
@@ -677,7 +678,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
         elif self.path == "/api/jobs":
             with _JOBS_LOCK:
-                jobs = list(_BG_JOBS.values())
+                jobs = [v for v in _BG_JOBS.values() if v.get("bg")]
             jobs.sort(key=lambda x: (0 if x["status"] == "running" else 1, -(x["t_end"] or x["t0"])))
             self._send(200, {"jobs": jobs[:30]})
         elif self.path.startswith("/api/history"):
@@ -910,6 +911,21 @@ class Handler(BaseHTTPRequestHandler):
                     _kill_response(resp)
                 log(f"中止请求 job={jid or '空'}：{'已中止' if cancelled else '无进行中的任务'}")
                 self._send(200, {"ok": True, "cancelled": cancelled})
+            except Exception as ex:
+                self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
+            return
+
+        if self.path == "/api/jobs/background":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                jid = (p.get("job_id") or "").strip()
+                with _JOBS_LOCK:
+                    e = _BG_JOBS.get(jid)
+                    if e is None:
+                        return self._send(200, {"error": "任务不存在或尚未登记"})
+                    e["bg"] = True
+                self._send(200, {"ok": True})
             except Exception as ex:
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
@@ -1288,7 +1304,7 @@ body.masked .card img { cursor:pointer; }
 
 <script>
 let mode = 'gen', files = [], maskFile = null;
-let genAbort = null, genJobId = '';
+let genAbort = null, genJobId = '', genBgNow = false;
 const $ = id => document.getElementById(id);
 const MODEL_NOTES = {
   'gpt-image-2': '旗舰单模型，画质 low/medium/high',
@@ -1583,7 +1599,10 @@ function currentSize(){
 
 let bgPollTimer = null;
 function toBackground(){
-  // 断开前端 fetch（AbortController 只影响浏览器等待，服务端任务继续）
+  // 通知服务端进入后台面板，再断开前端 fetch（AbortController 只影响浏览器等待，服务端任务继续）
+  genBgNow = true;
+  if (genJobId) fetch('/api/jobs/background', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: genJobId}) }).catch(()=>{});
   if (genAbort) genAbort.abort();
   $('go').disabled = false; $('go').textContent = '生成（约 60~90 秒 / 张）';
   $('toBgBtn').style.display = 'none';
@@ -1707,10 +1726,13 @@ async function generate(){
     bindCard(); loadHistory();
   }catch(e){
     clearInterval(timer);
-    if (e && e.name === 'AbortError'){ st.className='status'; st.textContent = '已中止本次请求'; }
+    if (e && e.name === 'AbortError'){ st.className='status';
+      st.textContent = genBgNow ? '任务已转入后台，进度见右侧面板' : '已中止本次请求'; }
     else { st.className='status err'; st.textContent = '请求异常：' + e + '（服务是否还在运行？）'; }
   }finally{ $('go').disabled = false; $('go').textContent = '生成（约 60~90 秒 / 张）'; genAbort = null;
-    $('toBgBtn').style.display = 'none'; toggleJobsPanel(true); }
+    $('toBgBtn').style.display = 'none';
+    if (genBgNow){ toggleJobsPanel(true); } else { refreshJobs(); }
+    genBgNow = false; }
 }
 
 function card(im){
