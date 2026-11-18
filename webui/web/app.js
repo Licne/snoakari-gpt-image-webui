@@ -668,56 +668,61 @@ async function refreshHistColl(){
 
 async function mgRender(){
   const s = await mgData();
-  if (s.error){ $('mgBody').innerHTML = '<div class="empty">' + s.error + '</div>'; return; }
-  if (mgOpenId){
-    const c = (s.collections || []).find(x => x.id === mgOpenId);
-    if (!c) mgOpenId = null;
-    else return mgRenderDetail(s, c);
-  }
-  mgRenderList(s);
+  if (s.error){ $('mgSide').innerHTML = '<div class="empty">' + s.error + '</div>';
+                $('mgMain').innerHTML = ''; return; }
+  if (mgOpenId && !(s.collections || []).some(c => c.id === mgOpenId)) mgOpenId = null;
+  mgRenderSide(s);
+  await mgRenderMain(s);
 }
 
 function mgEsc(s){
   return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
                   .replace(/'/g, "\\'").replace(/</g, '&lt;');
 }
-function mgRenderList(s){
+
+function mgRenderSide(s){
   const cols = s.collections || [];
-  $('mgBody').innerHTML = cols.length ? `
-    <div class="mgCards">${cols.map(c => `
-      <div class="mgCard">
-        <div class="mgCardTop" onclick="mgOpen('${c.id}')">
-          <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''}</span>
-          <span class="mgCount">${c.count} 张</span>
-        </div>
-        <div class="mgOps">
-          <a href="javascript:void(0)" onclick="mgOpen('${c.id}')">打开</a>
-          <a href="javascript:void(0)" onclick="mgRename('${c.id}','${mgEsc(c.name)}')">重命名</a>
-          <a href="javascript:void(0)" onclick="mgExport('${c.id}')">导出</a>
-          ${c.is_default ? '' : `<a href="javascript:void(0)" class="mgDel" onclick="mgDelete('${c.id}','${mgEsc(c.name)}')">删除</a>`}
-        </div>
-      </div>`).join('')}</div>`
-    : '<div class="empty">还没有收藏夹，点右上角「新建收藏夹」创建一个</div>';
+  $('mgSide').innerHTML = `
+    <div class="mgSideBtns">
+      <button onclick="mgCreate()">＋ 新建</button>
+      <button onclick="mgImportZip()">导入包</button>
+      <button onclick="mgExport('all')">导出全部</button>
+    </div>
+    <div class="mgSideList">
+      ${cols.map(c => `
+        <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${c.id}')">
+          <div class="mgSideTop">
+            <span class="mgSideName">📁 ${c.name}${c.is_default ? '<em>默认</em>' : ''}</span>
+            <span class="mgSideCount">${c.count}</span>
+          </div>
+          <div class="mgSideOps">
+            <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
+            <a title="导出此夹" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
+            ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>`}
+          </div>
+        </div>`).join('') || '<div class="empty">还没有收藏夹</div>'}
+    </div>`;
 }
 
-async function mgRenderDetail(s, c){
+async function mgRenderMain(s){
+  const c = (s.collections || []).find(x => x.id === mgOpenId);
+  if (!c){
+    $('mgMain').innerHTML = '<div class="empty">← 从左侧选择一个收藏夹，或点「＋ 新建」创建</div>';
+    return;
+  }
   const items = await (await fetch('/api/history?cid=' + encodeURIComponent(c.id))).json();
   const imgs = items.error ? [] : items;
-  $('mgBody').innerHTML = `
-    <div class="mgDetail">
-      <div class="mgDetailHead">
-        <a class="mgBack" href="javascript:void(0)" onclick="mgOpenId=null;mgRender()">← 返回收藏夹列表</a>
-        <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
-        <div class="mgBtns">
-          <button onclick="mgImportImages('${c.id}')">导入图片到此夹</button>
-          <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
-          <button onclick="mgExport('${c.id}')">导出此夹</button>
-        </div>
+  $('mgMain').innerHTML = `
+    <div class="mgDetailHead">
+      <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
+      <div class="mgBtns">
+        <button onclick="mgImportImages('${c.id}')">导入图片</button>
+        <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
       </div>
-      <div class="grid mgGrid" id="mgGrid">
-        ${imgs.length ? imgs.map(im => mgCard(im, c.id)).join('')
-          : '<div class="empty">收藏夹是空的：用「导入图片」或「从历史添加」加入素材</div>'}
-      </div>
+    </div>
+    <div class="grid mgGrid" id="mgGrid">
+      ${imgs.length ? imgs.map(im => mgCard(im, c.id)).join('')
+        : '<div class="empty">收藏夹是空的：用「导入图片」或「从历史添加」加入素材</div>'}
     </div>`;
   bindCard();
 }
@@ -728,7 +733,6 @@ function mgCard(im, cid){
     <img src="${im.url}" data-full="${im.url}" loading="lazy">
     <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb ? ' · ' + kb : ''}</span></div>
     <div class="ops">
-      <a href="javascript:void(0)" onclick="addAsInput('${im.url}','${im.name}')">引用</a>
       <a href="${im.url}" download="${im.name}">下载</a>
       <a href="javascript:void(0)" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
     </div></div>`;

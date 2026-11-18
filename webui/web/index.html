@@ -136,13 +136,11 @@
         <h2 style="margin:0">作品管理</h2>
         <div class="mgSub">收藏夹分组管理素材；工作区点「收藏」的图片自动进入默认收藏夹</div>
       </div>
-      <div class="mgBtns">
-        <button onclick="mgCreate()">＋ 新建收藏夹</button>
-        <button onclick="mgImportZip()">导入收藏包</button>
-        <button onclick="mgExport('all')">导出全部</button>
-      </div>
     </div>
-    <div id="mgBody"><div class="empty">加载中……</div></div>
+    <div id="mgBody" class="mgBody">
+      <div class="mgSide" id="mgSide"></div>
+      <div class="mgMain" id="mgMain"><div class="empty">加载中……</div></div>
+    </div>
     <input type="file" id="mgZipFile" accept=".zip" hidden>
     <input type="file" id="mgImgFiles" accept="image/*" multiple hidden>
   </div>
