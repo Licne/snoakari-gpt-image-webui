@@ -3,6 +3,13 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.1] - 2026-11-18
+
+### Changed
+
+- 作品管理改整页模式：入口按钮移至「遮罩」开关左侧，进入后隐藏左侧参数栏、整页展示，左上角「← 返回工作区」切回
+- 「只看收藏」按钮与收藏夹筛选下拉统一为 28px 高度
+
 ## [2.1.0] - 2026-11-18
 
 ### Added
@@ -87,6 +94,7 @@
 - 模型系列参数适配（gpt-image 系全参数；nano-banana/gemini/grok 系仅基础参数）
 - 收藏 / 重命名 / 引用 / 本地查看 / 中止请求 / 隐私遮罩 / 参数本地记忆
 
+[2.1.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v1.3.1...v2.0.0
 [1.3.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v1.3.0...v1.3.1
