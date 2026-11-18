@@ -140,8 +140,6 @@ def rename_collection(cid, name):
     if not name:
         raise ValueError("合集名称不能为空")
     d = load_collections()
-    if cid == d["default_id"]:
-        raise ValueError("「我的收藏」不支持重命名")
     c = _get(d, cid)
     if c is None:
         raise ValueError("收藏夹不存在")

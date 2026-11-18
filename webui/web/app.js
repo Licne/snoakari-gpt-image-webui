@@ -697,15 +697,14 @@ function mgRenderSide(s){
   const item = c => `
     <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${c.id}')">
       <div class="mgSideTop">
-        <span class="mgSideName">${c.is_default ? '⭐' : '📁'} ${c.name}</span>
+        <span class="mgSideName">${c.is_default ? '⭐' : '📁'} ${c.name}${c.is_default ? '<em>默认</em>' : ''}</span>
         <span class="mgSideCount">${c.count}</span>
       </div>
-      ${c.is_default ? '' : `
       <div class="mgSideOps">
         <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
-        <a title="导出此合集" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
-        <a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>
-      </div>`}
+        <a title="导出" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
+        ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>`}
+      </div>
     </div>`;
   $('mgSide').innerHTML = `
     <div class="mgSideBtns">
@@ -729,7 +728,7 @@ async function mgRenderMain(s){
   const imgs = items.error ? [] : items;
   $('mgMain').innerHTML = `
     <div class="mgDetailHead">
-      <span class="mgName">${c.is_default ? '⭐' : '📁'} ${c.name} · ${imgs.length} 张</span>
+      <span class="mgName">${c.is_default ? '⭐' : '📁'} ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
       <div class="mgBtns">
         ${mgLayBtnHtml()}
         <button onclick="mgImportImages('${c.id}')">导入图片</button>
@@ -853,7 +852,7 @@ async function mgCreate(){
   refreshHistColl(); mgRender();
 }
 async function mgRename(cid, cur){
-  const name = prompt('重命名合集：', cur);
+  const name = prompt('重命名：', cur);
   if (!name || !name.trim() || name === cur) return;
   const j = await post('/api/collections/rename', { id: cid, name: name.trim() });
   if (j.error) return alert('重命名失败：' + j.error);
