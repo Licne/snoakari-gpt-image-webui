@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
-零依赖的本地 WebUI：浏览器里调用 NewAPI 中转站的 gpt-image / nano-banana / gemini 等图像模型，文生图、改图、多图融合。纯 Python 标准库，无需 pip 安装。密钥只存本机，不经第三方服务器。
+零依赖的本地 WebUI：浏览器里调用 OpenAI 兼容协议（`/v1/images/*`）的图像服务——中转站、各类聚合网关均可接入，文生图、改图、多图融合。纯 Python 标准库，无需 pip 安装。密钥只存本机，不经第三方服务器。
 
 ## 快速开始
 
@@ -28,7 +28,7 @@ Windows 双击 `启动WebUI.bat` 即可，浏览器自动打开 http://127.0.0.1
 
 - 文生图 / 改图·多图融合（1~16 张输入图）
 - 后台任务：生成中转入后台继续填参，任务面板看进度、可中止、失败可原参数重试
-- 中转站分组管理：多组地址/密钥/模型列表，页顶一键切换
+- 分组管理：多组地址/密钥/模型列表，页顶一键切换，可接任意 OpenAI 协议服务
 - 模型系列参数适配：gpt-image 系全参数，其他系列自动隐藏不兼容参数
 - 收藏管理：收藏夹分组、本地图片导入、导出/导入跨电脑迁移（开发中）
 
