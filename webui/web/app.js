@@ -645,8 +645,7 @@ let mgOpenId = null;       // 当前打开的收藏夹 id；null = 列表视图
 function mgViewVisible(){ return $('mgView') && $('mgView').style.display !== 'none'; }
 
 function showView(v){
-  $('vtabWs').classList.toggle('active', v === 'ws');
-  $('vtabMg').classList.toggle('active', v === 'mg');
+  document.body.classList.toggle('mgmode', v === 'mg');
   $('wsView').style.display = v === 'ws' ? '' : 'none';
   $('mgView').style.display = v === 'mg' ? '' : 'none';
   if (v === 'mg') mgRender();

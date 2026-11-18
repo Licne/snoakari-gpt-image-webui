@@ -114,12 +114,11 @@
 </aside>
 
 <main>
-  <div class="viewTabs">
-    <button id="vtabWs" class="active" onclick="showView('ws')">工作区</button>
-    <button id="vtabMg" onclick="showView('mg')">作品管理</button>
-  </div>
   <div id="wsView">
-    <h2>本次结果 <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button></h2>
+    <h2>本次结果
+      <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button>
+      <button id="mgBtn" class="maskBtn" onclick="showView('mg')" style="margin-right:8px" title="打开作品管理页">作品管理</button>
+    </h2>
     <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
     <h2 style="margin-top:24px">历史记录（outputs/ 目录）
       <select id="histColl" class="histColl" onchange="loadHistory()" title="按收藏夹筛选历史"></select>
@@ -128,6 +127,7 @@
     <div class="grid" id="history"><div class="empty">加载中……</div></div>
   </div>
   <div id="mgView" style="display:none">
+    <div class="mgTop"><a class="mgBack" href="javascript:void(0)" onclick="showView('ws')">← 返回工作区</a></div>
     <div class="mgHead">
       <div>
         <h2 style="margin:0">作品管理</h2>
