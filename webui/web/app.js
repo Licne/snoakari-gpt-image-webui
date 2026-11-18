@@ -513,18 +513,19 @@ function toggleFav(name){
     if (mgViewVisible()) mgRender();
   }).catch(e => alert('收藏失败：' + e));
 }
-function renameImage(name){
-  const to = prompt('重命名为（需带图片扩展名，如 my-asset.png）：', name);
+async function renameImage(name){
+  const to = await uiAsk({ title:'重命名图片', msg:'需带图片扩展名，如 my-asset.png', value:name });
   if (!to || to === name) return;
   post('/api/rename', { name, to }).then(j => {
     if (j.error) return alert('重命名失败：' + j.error);
+    // 同名卡片可能出现在工作区/历史/作品管理（含从历史添加的选择卡），各元素做防御式更新
     document.querySelectorAll('.card[data-name="' + CSS.escape(name) + '"]').forEach(el => {
       el.dataset.name = j.name;
-      el.querySelector('.meta span').textContent = j.name;
+      const meta = el.querySelector('.meta span'); if (meta) meta.textContent = j.name;
       const img = el.querySelector('img');
-      img.src = j.url; img.dataset.full = j.url;
+      if (img){ img.src = j.url; img.dataset.full = j.url; }
       const dl = el.querySelector('a[download]');
-      dl.href = j.url; dl.setAttribute('download', j.name);
+      if (dl){ dl.href = j.url; dl.setAttribute('download', j.name); }
       el.querySelectorAll('a[onclick]').forEach(a => {
         a.setAttribute('onclick', (a.getAttribute('onclick')||'').split(name).join(j.name));
       });
@@ -583,9 +584,10 @@ function newGroup(){
   gi = editGroups.length - 1;
   renderGroupEditor();
 }
-function delGroup(){
+async function delGroup(){
   if (editGroups.length <= 1){ setErr('至少保留一个分组'); return; }
-  if (!confirm(`删除分组「${editGroups[gi].name}」？（不会删除任何图片）`)) return;
+  const ok = await uiAsk({ title:'删除分组', msg:`删除分组「${editGroups[gi].name}」？不会删除任何图片`, okText:'删除', danger:true });
+  if (!ok) return;
   editGroups.splice(gi, 1);
   gi = Math.min(gi, editGroups.length - 1);
   renderGroupEditor();
@@ -857,21 +859,22 @@ function mgPickCancel(){
 function mgOpen(cid){ mgOpenId = cid; mgRender(); }
 
 async function mgCreate(){
-  const name = prompt('新合集名称：');
+  const name = await uiAsk({ title:'新建合集', msg:'输入合集名称', value:'' });
   if (!name || !name.trim()) return;
   const j = await post('/api/collections/create', { name: name.trim() });
   if (j.error) return alert('创建失败：' + j.error);
   refreshHistColl(); mgRender();
 }
 async function mgRename(cid, cur){
-  const name = prompt('重命名：', cur);
+  const name = await uiAsk({ title:'重命名合集', value:cur });
   if (!name || !name.trim() || name === cur) return;
   const j = await post('/api/collections/rename', { id: cid, name: name.trim() });
   if (j.error) return alert('重命名失败：' + j.error);
   refreshHistColl(); mgRender();
 }
 async function mgDelete(cid, name){
-  if (!confirm(`删除合集「${name}」？\n（只解除关联，不会删除 outputs/ 里的图片）`)) return;
+  const ok = await uiAsk({ title:'删除合集', msg:`删除合集「${name}」？只解除关联，不会删除 outputs/ 里的图片`, okText:'删除', danger:true });
+  if (!ok) return;
   const j = await post('/api/collections/delete', { id: cid });
   if (j.error) return alert('删除失败：' + j.error);
   if (mgOpenId === cid) mgOpenId = null;
@@ -937,8 +940,35 @@ function mgImportImages(cid){
   inp.click();
 }
 
+/* ---------- 通用输入/确认弹窗（替代浏览器默认 prompt/confirm） ---------- */
+let askResolve = null;
+function uiAsk(opt){
+  return new Promise(res => {
+    askResolve = res;
+    $('askTitle').textContent = opt.title || '请输入';
+    const msg = $('askMsg');
+    msg.textContent = opt.msg || '';
+    msg.style.display = opt.msg ? '' : 'none';
+    const inp = $('askInput');
+    if (opt.value === undefined || opt.value === null){ inp.style.display = 'none'; inp.value = ''; }
+    else { inp.style.display = ''; inp.value = opt.value; }
+    const ok = $('askOkBtn');
+    ok.textContent = opt.okText || '确定';
+    ok.className = opt.danger ? 'danger' : 'primary';
+    $('askModal').style.display = 'flex';
+    if (inp.style.display !== 'none'){ setTimeout(() => { inp.focus(); inp.select(); }, 30); }
+  });
+}
+function askCancel(){ $('askModal').style.display = 'none'; if (askResolve){ askResolve(null); askResolve = null; } }
+function askOk(){
+  const v = $('askInput').style.display === 'none' ? true : $('askInput').value;
+  $('askModal').style.display = 'none';
+  if (askResolve){ askResolve(v); askResolve = null; }
+}
+
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
+  if ($('askModal').style.display === 'flex') { askCancel(); return; }
   if ($('lb').style.display === 'flex') { $('lb').style.display = 'none'; return; }
   if (mgPicking) mgPickCancel();
 });

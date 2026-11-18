@@ -167,6 +167,18 @@
   </div>
 </div>
 
+<div class="modal" id="askModal">
+  <div class="box" style="max-width:400px">
+    <h3 id="askTitle">输入</h3>
+    <div class="sub" id="askMsg"></div>
+    <input type="text" id="askInput" onkeydown="if(event.key==='Enter')askOk()">
+    <div class="btns">
+      <button onclick="askCancel()">取消</button>
+      <button id="askOkBtn" class="primary" onclick="askOk()">确定</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal" id="settingsModal">
   <div class="box" style="max-width:560px">
     <h3>⚙ 中转站分组管理</h3>

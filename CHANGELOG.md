@@ -3,6 +3,16 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.6] - 2026-11-18
+
+### Added
+
+- 重命名、新建合集、删除合集、删除分组等操作改用应用内自定义弹窗，替代浏览器默认输入框与确认框（支持 Enter 确定 / Esc 取消）
+
+### Fixed
+
+- 修复卡片重命名报错 `TypeError: Cannot set properties of null (setting 'href')`：从历史添加的选择卡片没有下载链接，重命名遍历同名卡片时未做防御
+
 ## [2.2.5] - 2026-11-18
 
 ### Added
