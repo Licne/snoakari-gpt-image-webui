@@ -687,25 +687,29 @@ function mgEsc(s){
 
 function mgRenderSide(s){
   const cols = s.collections || [];
+  const def = cols.find(c => c.is_default);
+  const rest = cols.filter(c => !c.is_default);
+  const item = c => `
+    <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${c.id}')">
+      <div class="mgSideTop">
+        <span class="mgSideName">${c.is_default ? '⭐' : '📁'} ${c.name}</span>
+        <span class="mgSideCount">${c.count}</span>
+      </div>
+      ${c.is_default ? '' : `
+      <div class="mgSideOps">
+        <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
+        <a title="导出此合集" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
+        <a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>
+      </div>`}
+    </div>`;
   $('mgSide').innerHTML = `
     <div class="mgSideBtns">
-      <button onclick="mgCreate()">＋ 新建</button>
+      <button onclick="mgCreate()">＋ 新建合集</button>
       <button onclick="mgImportZip()">导入包</button>
       <button onclick="mgExport('all')">导出全部</button>
     </div>
     <div class="mgSideList">
-      ${cols.map(c => `
-        <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${c.id}')">
-          <div class="mgSideTop">
-            <span class="mgSideName">📁 ${c.name}${c.is_default ? '<em>默认</em>' : ''}</span>
-            <span class="mgSideCount">${c.count}</span>
-          </div>
-          <div class="mgSideOps">
-            <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
-            <a title="导出此夹" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
-            ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>`}
-          </div>
-        </div>`).join('') || '<div class="empty">还没有收藏夹</div>'}
+      ${def ? item(def) + '<div class="mgSideLabel">合集</div>' + (rest.map(item).join('') || '<div class="empty mgSideEmpty">还没有合集</div>') : '<div class="empty">还没有收藏夹</div>'}
     </div>`;
 }
 
@@ -719,7 +723,7 @@ async function mgRenderMain(s){
   const imgs = items.error ? [] : items;
   $('mgMain').innerHTML = `
     <div class="mgDetailHead">
-      <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
+      <span class="mgName">${c.is_default ? '⭐' : '📁'} ${c.name} · ${imgs.length} 张</span>
       <div class="mgBtns">
         <button onclick="mgImportImages('${c.id}')">导入图片</button>
         <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
@@ -744,21 +748,21 @@ async function mgRenderMain(s){
 function mgOpen(cid){ mgOpenId = cid; mgRender(); }
 
 async function mgCreate(){
-  const name = prompt('新收藏夹名称：');
+  const name = prompt('新合集名称：');
   if (!name || !name.trim()) return;
   const j = await post('/api/collections/create', { name: name.trim() });
   if (j.error) return alert('创建失败：' + j.error);
   refreshHistColl(); mgRender();
 }
 async function mgRename(cid, cur){
-  const name = prompt('重命名收藏夹（默认夹也可改名）：', cur);
+  const name = prompt('重命名合集：', cur);
   if (!name || !name.trim() || name === cur) return;
   const j = await post('/api/collections/rename', { id: cid, name: name.trim() });
   if (j.error) return alert('重命名失败：' + j.error);
   refreshHistColl(); mgRender();
 }
 async function mgDelete(cid, name){
-  if (!confirm(`删除收藏夹「${name}」？\n（只解除关联，不会删除 outputs/ 里的图片）`)) return;
+  if (!confirm(`删除合集「${name}」？\n（只解除关联，不会删除 outputs/ 里的图片）`)) return;
   const j = await post('/api/collections/delete', { id: cid });
   if (j.error) return alert('删除失败：' + j.error);
   if (mgOpenId === cid) mgOpenId = null;

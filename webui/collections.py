@@ -138,8 +138,10 @@ def create_collection(name):
 def rename_collection(cid, name):
     name = (name or "").strip()
     if not name:
-        raise ValueError("收藏夹名称不能为空")
+        raise ValueError("合集名称不能为空")
     d = load_collections()
+    if cid == d["default_id"]:
+        raise ValueError("「我的收藏」不支持重命名")
     c = _get(d, cid)
     if c is None:
         raise ValueError("收藏夹不存在")
@@ -155,7 +157,7 @@ def rename_collection(cid, name):
 def delete_collection(cid):
     d = load_collections()
     if cid == d["default_id"]:
-        raise ValueError("默认收藏夹不可删除（可改名）")
+        raise ValueError("「我的收藏」不可删除")
     c = _get(d, cid)
     if c is None:
         raise ValueError("收藏夹不存在")
