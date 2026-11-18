@@ -104,7 +104,7 @@
     <div class="jobsHead">
       <span>后台任务（<span id="jobsRun">0</span> 个进行中）</span>
       <span>
-        <a href="javascript:void(0)" onclick="refreshJobs(true)">刷新</a>
+        <a href="javascript:void(0)" onclick="refreshJobsNow()">刷新</a>
         <a href="javascript:void(0)" onclick="clearJobs()">清除已完成</a>
         <a href="javascript:void(0)" onclick="toggleJobsPanel(false)">收起</a>
       </span>
@@ -173,7 +173,7 @@
     <div class="sub">每组独立配置地址/密钥/模型列表；修改后写入同目录 config.json</div>
 
     <label>分组</label>
-    <select id="setGroup" onchange="renderGroupEditor()"></select>
+    <select id="setGroup" onchange="onSetGroupChange()"></select>
     <div class="btns" style="margin:8px 0 14px">
       <button onclick="newGroup()">＋ 新增分组</button>
       <button onclick="delGroup()">删除分组</button>

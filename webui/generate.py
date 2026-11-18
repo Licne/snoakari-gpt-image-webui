@@ -9,7 +9,7 @@ import time
 import urllib.error
 import uuid
 
-from .jobs import (_ACTIVE_JOBS, _JOBS_LOCK, _bg_finish, _register_job,
+from .jobs import (_ACTIVE_JOBS, _JOBS_LOCK, _bg_finish, _bg_phase, _register_job,
                    _register_resp, fetch_bytes, read_response)
 from .network import api_request
 from .storage import FORMATS, IMG_EXTS, OUTPUT_DIR, SIZE_PRESETS, log
@@ -91,6 +91,7 @@ def save_images(resp_json, fmt, prefix="", job_id=""):
             blob = base64.b64decode(item["b64_json"])
         elif item.get("url"):
             log(f"第 {idx} 张为 URL 结果，开始下载（可能较慢，耐心等待）")
+            _bg_phase(job_id, "downloading")  # 面板显示「下载中…」，落库后清除
             try:
                 t_dl = time.time()
                 blob = fetch_bytes(item["url"], job_id)
@@ -105,6 +106,7 @@ def save_images(resp_json, fmt, prefix="", job_id=""):
         ext = sniff_ext(blob, ext_hint)
         name = (f"{prefix}_" if prefix else "") + f"{stamp}-{uuid.uuid4().hex[:6]}" + (f"-{idx}" if len(items) > 1 else "") + ext
         results.append({"name": name, "bytes": blob})
+    _bg_phase(job_id, "")
     if not results:
         raise RuntimeError("响应中没有图片数据：" + json.dumps(resp_json, ensure_ascii=False)[:1500])
     return results

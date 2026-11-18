@@ -315,12 +315,13 @@ function toggleJobsPanel(show){
 }
 async function refreshJobs(force){
   try{
-    const j = await (await fetch('/api/jobs')).json();
+    const j = await (await fetch('/api/jobs', {cache:'no-store'})).json();
     const jobs = j.jobs || [];
     let running = 0;
     $('jobsList').innerHTML = jobs.map(t => {
       const stMap = {running:['run','进行中'], done:['ok','已完成'], failed:['fail','失败'], cancelled:['can','已中止']};
-      const [cls, label] = stMap[t.status] || ['can', t.status];
+      const isDl = t.status === 'running' && t.phase === 'downloading';
+      const [cls, label] = isDl ? ['dl', '下载中…'] : (stMap[t.status] || ['can', t.status]);
       if (t.status === 'running') running++;
       const tstr = t.status === 'running'
         ? '已等 ' + Math.round((Date.now()/1000 - t.t0)) + ' 秒'
@@ -340,15 +341,15 @@ async function refreshJobs(force){
       </div>`;
     }).join('') || '<div class="jobItem" style="color:var(--muted)">暂无任务</div>';
     $('jobsRun').textContent = running;
-    if (running === 0 && !force && !jobs.some(t => t.status==='done' && !(seenDone||{})[t.id])){
-      // 有新完成任务时刷一次历史
-      loadHistory();
-    }
-    (window.seenDone = window.seenDone || {});
+    // 有新完成任务时刷一次历史（修复：原条件写反，恰在新完成时跳过；seenDone 未声明抛错被吞）
+    window.seenDone = window.seenDone || {};
+    const hasNew = jobs.some(t => t.status==='done' && !window.seenDone[t.id]);
+    if (running === 0 && hasNew) loadHistory();
     jobs.forEach(t => { if (t.status==='done') window.seenDone[t.id] = 1; });
     if (running === 0 && bgPollTimer){ clearInterval(bgPollTimer); bgPollTimer = null; }
   }catch(e){ /* 面板静默 */ }
 }
+function refreshJobsNow(){ refreshJobs(true); loadHistory(); }  // 面板「刷新」：任务列表 + 历史一起刷新
 async function clearJobs(){
   await fetch('/api/jobs/clear', { method:'POST' });
   refreshJobs();
@@ -569,6 +570,11 @@ function collectEditor(){
   if (k){ g.api_key = k; g.has_key = true; g.key_masked = k.slice(0,6) + '****' + k.slice(-4); }
   g.proxy = $('grpProxy').value.trim();
   g.models = $('grpModels').value.split('\n').map(s => s.trim()).filter(Boolean);
+}
+function onSetGroupChange(){
+  collectEditor();   // 先把当前组输入框里未保存的编辑收进 editGroups
+  gi = parseInt($('setGroup').value, 10) || 0;
+  renderGroupEditor();
 }
 function newGroup(){
   collectEditor();

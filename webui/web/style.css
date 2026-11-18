@@ -77,6 +77,7 @@ select, input[type=text] { background:var(--panel2); color:var(--text); border:1
 .jobItem .ok { color:#7dd3fc; }
 .jobItem .fail { color:#f87171; }
 .jobItem .can { color:var(--muted); }
+.jobItem .dl { color:#fbbf24; }
 .jobItem .jid { flex:1; font-size:11px; color:var(--muted); font-family:Consolas,monospace; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .jobItem .del { color:var(--muted); text-decoration:none; font-size:13px; padding:0 2px; }
 .jobItem .retry { color:var(--acc); text-decoration:none; font-size:12px; flex-shrink:0; }

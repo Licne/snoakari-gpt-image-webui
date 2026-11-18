@@ -27,7 +27,7 @@ def _bg_register(job_id, payload, cfg):
             "n": payload.get("n") or 1,
             "pshow": prompt[:30] + ("…" if len(prompt) > 30 else ""),
             "t0": time.time(), "t_end": None,
-            "status": "running", "error": "", "images": [], "elapsed": 0,
+            "status": "running", "phase": "", "error": "", "images": [], "elapsed": 0,
             "bg": False,   # 仅点“转入后台”后进入任务面板
             "payload": dict(payload),  # 完整参数：失败后可供重试（成功/中止时释放）
         }
@@ -44,12 +44,24 @@ def _bg_finish(job_id, status, images=None, elapsed=None, error=""):
         if e is None:
             return
         e["status"] = status
+        e["phase"] = ""
         e["t_end"] = time.time()
         e["images"] = images or []
         e["error"] = error or ""
         e["elapsed"] = elapsed if elapsed is not None else round(e["t_end"] - e["t0"], 1)
         if status != "failed":
             e.pop("payload", None)  # 只有失败任务保留参数供重试
+
+
+def _bg_phase(job_id, phase):
+    """更新进行中任务的阶段（如 downloading：URL 结果下载中），不改状态本身"""
+    if not job_id:
+        return
+    with _JOBS_LOCK:
+        e = _BG_JOBS.get(job_id)
+        if e is not None:
+            e["phase"] = phase
+
 _JOBS_LOCK = threading.Lock()
 
 
@@ -97,7 +109,7 @@ def read_response(resp, job_id=""):
                         raise ValueError("已中止")
             try:
                 chunk = resp.read(65536)
-            except Exception as ex:
+            except Exception:
                 if job_id:
                     with _JOBS_LOCK:
                         e = _ACTIVE_JOBS.get(job_id)
