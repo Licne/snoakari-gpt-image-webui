@@ -129,3 +129,32 @@ body.masked .card img { cursor:pointer; }
    background:var(--panel2); color:var(--text); cursor:pointer; font-size:14px; }
 .modal .btns button.primary { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:700; }
 @media (max-width:860px){ .layout{flex-direction:column;} aside{width:auto; min-width:0;} main{height:auto;} }
+
+/* ---------- 作品管理 ---------- */
+.viewTabs { display:flex; gap:8px; margin-bottom:16px; border-bottom:1px solid var(--line); padding-bottom:10px; }
+.viewTabs button { padding:8px 22px; border:1px solid var(--line); border-radius:999px;
+  background:var(--panel2); color:var(--muted); cursor:pointer; font-size:13.5px; }
+.viewTabs button.active { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:600; }
+.histColl { float:right; font-size:12px; padding:4px 8px; border-radius:8px; margin-left:10px;
+  max-width:180px; background:var(--panel2); color:var(--text); border:1px solid var(--line); }
+.mgHead { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin:4px 0 16px; }
+.mgSub { color:var(--muted); font-size:12px; margin-top:4px; }
+.mgBtns { display:flex; gap:8px; flex-shrink:0; }
+.mgBtns button { padding:8px 14px; border-radius:9px; border:1px solid var(--line);
+  background:var(--panel2); color:var(--text); cursor:pointer; font-size:13px; }
+.mgBtns button:hover { border-color:var(--acc); color:var(--acc); }
+.mgCards { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+.mgCard { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px 14px; }
+.mgCardTop { display:flex; justify-content:space-between; align-items:center; gap:8px; cursor:pointer; }
+.mgName { font-size:14px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mgName em { font-style:normal; font-size:11px; color:var(--acc); border:1px solid var(--acc);
+  border-radius:999px; padding:1px 8px; margin-left:4px; font-weight:400; }
+.mgCount { color:var(--muted); font-size:12px; flex-shrink:0; }
+.mgOps { display:flex; gap:8px; margin-top:10px; }
+.mgOps a { flex:1; text-align:center; padding:6px 0; border-radius:7px; background:var(--panel2);
+  color:var(--text); text-decoration:none; font-size:12px; border:1px solid var(--line); }
+.mgOps a:hover { border-color:var(--acc); color:var(--acc); }
+.mgOps a.mgDel:hover { border-color:#f87171; color:#f87171; }
+.mgDetailHead { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+.mgBack { color:var(--acc); text-decoration:none; font-size:13px; flex-shrink:0; }
+.mgGrid { grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); }

@@ -114,16 +114,50 @@
 </aside>
 
 <main>
-  <h2>本次结果 <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button></h2>
-  <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
-  <h2 style="margin-top:24px">历史记录（outputs/ 目录）
-    <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
-  </h2>
-  <div class="grid" id="history"><div class="empty">加载中……</div></div>
+  <div class="viewTabs">
+    <button id="vtabWs" class="active" onclick="showView('ws')">工作区</button>
+    <button id="vtabMg" onclick="showView('mg')">作品管理</button>
+  </div>
+  <div id="wsView">
+    <h2>本次结果 <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button></h2>
+    <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
+    <h2 style="margin-top:24px">历史记录（outputs/ 目录）
+      <select id="histColl" class="histColl" onchange="loadHistory()" title="按收藏夹筛选历史"></select>
+      <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
+    </h2>
+    <div class="grid" id="history"><div class="empty">加载中……</div></div>
+  </div>
+  <div id="mgView" style="display:none">
+    <div class="mgHead">
+      <div>
+        <h2 style="margin:0">作品管理</h2>
+        <div class="mgSub">收藏夹分组管理素材；工作区点「收藏」的图片自动进入默认收藏夹</div>
+      </div>
+      <div class="mgBtns">
+        <button onclick="mgCreate()">＋ 新建收藏夹</button>
+        <button onclick="mgImportZip()">导入收藏包</button>
+        <button onclick="mgExport('all')">导出全部</button>
+      </div>
+    </div>
+    <div id="mgBody"><div class="empty">加载中……</div></div>
+    <input type="file" id="mgZipFile" accept=".zip" hidden>
+    <input type="file" id="mgImgFiles" accept="image/*" multiple hidden>
+  </div>
 </main>
 </div>
 
 <div class="lightbox" id="lb" onclick="this.style.display='none'"><img id="lbImg"></div>
+
+<div class="modal" id="mgPickerModal">
+  <div class="box" style="width:min(94vw,1080px)">
+    <h3 id="mgPickerTitle">从历史添加图片</h3>
+    <div class="sub">点击图片卡片上的「加入」按钮，添加完成后关闭即可</div>
+    <div class="grid mgGrid" id="mgPickerGrid"></div>
+    <div class="btns">
+      <button class="primary" onclick="mgClosePicker()">完成</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="maskModal">
   <div class="box" style="width:min(94vw,960px)">

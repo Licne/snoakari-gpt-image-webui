@@ -79,6 +79,7 @@ const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
   $('model').value = savedOrDefault('model', cfg.model);
   onModelChange(); onSizeChange(); onFormatChange();
   loadHistory();
+  refreshHistColl();
 })();
 
 function savedOrDefault(k, d){ try{ return JSON.parse(localStorage.getItem('gptImageParams')||'{}')[k] ?? d; }catch(e){ return d; } }
@@ -471,7 +472,12 @@ function bindCard(){
 let favOnly = false;
 async function loadHistory(){
   try{
-    const items = await (await fetch('/api/history' + (favOnly ? '?fav=1' : ''))).json();
+    const params = [];
+    if (favOnly) params.push('fav=1');
+    const cid = $('histColl') ? $('histColl').value : '';
+    if (cid) params.push('cid=' + encodeURIComponent(cid));
+    const items = await (await fetch('/api/history' + (params.length ? '?' + params.join('&') : ''))).json();
+    if (items.error){ $('history').innerHTML = '<div class="empty">' + items.error + '</div>'; return; }
     $('history').innerHTML = items.length
       ? items.map(im => card(im)).join('')
       : `<div class="empty">${favOnly ? '收藏夹为空' : '暂无历史记录'}</div>`;
@@ -497,6 +503,7 @@ function toggleFav(name){
       const a = [...el.querySelectorAll('a')].find(x => x.textContent === '收藏' || x.textContent === '取消收藏');
       if (a) a.textContent = j.fav ? '取消收藏' : '收藏';
     });
+    if (mgViewVisible()) mgRender();
   }).catch(e => alert('收藏失败：' + e));
 }
 function renameImage(name){
@@ -630,4 +637,210 @@ function applyModels(models, model){
   $('model').innerHTML = list.map(m => `<option value="${m}">${m}</option>`).join('');
   $('model').value = list.includes(model) ? model : (list[0] || '');
   onModelChange();
+}
+
+
+/* ==================== 作品管理（收藏夹） ==================== */
+let mgOpenId = null;       // 当前打开的收藏夹 id；null = 列表视图
+function mgViewVisible(){ return $('mgView') && $('mgView').style.display !== 'none'; }
+
+function showView(v){
+  $('vtabWs').classList.toggle('active', v === 'ws');
+  $('vtabMg').classList.toggle('active', v === 'mg');
+  $('wsView').style.display = v === 'ws' ? '' : 'none';
+  $('mgView').style.display = v === 'mg' ? '' : 'none';
+  if (v === 'mg') mgRender();
+}
+
+async function mgData(){
+  return (await (await fetch('/api/collections')).json());
+}
+async function refreshHistColl(){
+  try{
+    const s = await mgData();
+    const sel = $('histColl');
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">全部（不筛选）</option>'
+      + (s.collections || []).map(c => `<option value="${c.id}">${c.name}${c.is_default ? '（默认）' : ''}</option>`).join('');
+    sel.value = (s.collections || []).some(c => c.id === cur) ? cur : '';
+  }catch(e){ /* 静默 */ }
+}
+
+async function mgRender(){
+  const s = await mgData();
+  if (s.error){ $('mgBody').innerHTML = '<div class="empty">' + s.error + '</div>'; return; }
+  if (mgOpenId){
+    const c = (s.collections || []).find(x => x.id === mgOpenId);
+    if (!c) mgOpenId = null;
+    else return mgRenderDetail(s, c);
+  }
+  mgRenderList(s);
+}
+
+function mgEsc(s){
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                  .replace(/'/g, "\\'").replace(/</g, '&lt;');
+}
+function mgRenderList(s){
+  const cols = s.collections || [];
+  $('mgBody').innerHTML = cols.length ? `
+    <div class="mgCards">${cols.map(c => `
+      <div class="mgCard">
+        <div class="mgCardTop" onclick="mgOpen('${c.id}')">
+          <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''}</span>
+          <span class="mgCount">${c.count} 张</span>
+        </div>
+        <div class="mgOps">
+          <a href="javascript:void(0)" onclick="mgOpen('${c.id}')">打开</a>
+          <a href="javascript:void(0)" onclick="mgRename('${c.id}','${mgEsc(c.name)}')">重命名</a>
+          <a href="javascript:void(0)" onclick="mgExport('${c.id}')">导出</a>
+          ${c.is_default ? '' : `<a href="javascript:void(0)" class="mgDel" onclick="mgDelete('${c.id}','${mgEsc(c.name)}')">删除</a>`}
+        </div>
+      </div>`).join('')}</div>`
+    : '<div class="empty">还没有收藏夹，点右上角「新建收藏夹」创建一个</div>';
+}
+
+async function mgRenderDetail(s, c){
+  const items = await (await fetch('/api/history?cid=' + encodeURIComponent(c.id))).json();
+  const imgs = items.error ? [] : items;
+  $('mgBody').innerHTML = `
+    <div class="mgDetail">
+      <div class="mgDetailHead">
+        <a class="mgBack" href="javascript:void(0)" onclick="mgOpenId=null;mgRender()">← 返回收藏夹列表</a>
+        <span class="mgName">📁 ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
+        <div class="mgBtns">
+          <button onclick="mgImportImages('${c.id}')">导入图片到此夹</button>
+          <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
+          <button onclick="mgExport('${c.id}')">导出此夹</button>
+        </div>
+      </div>
+      <div class="grid mgGrid" id="mgGrid">
+        ${imgs.length ? imgs.map(im => mgCard(im, c.id)).join('')
+          : '<div class="empty">收藏夹是空的：用「导入图片」或「从历史添加」加入素材</div>'}
+      </div>
+    </div>`;
+  bindCard();
+}
+
+function mgCard(im, cid){
+  const kb = im.size ? (im.size/1024).toFixed(0) + ' KB' : '';
+  return `<div class="card" data-name="${im.name}">
+    <img src="${im.url}" data-full="${im.url}" loading="lazy">
+    <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb ? ' · ' + kb : ''}</span></div>
+    <div class="ops">
+      <a href="javascript:void(0)" onclick="addAsInput('${im.url}','${im.name}')">引用</a>
+      <a href="${im.url}" download="${im.name}">下载</a>
+      <a href="javascript:void(0)" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
+    </div></div>`;
+}
+
+function mgOpen(cid){ mgOpenId = cid; mgRender(); }
+
+async function mgCreate(){
+  const name = prompt('新收藏夹名称：');
+  if (!name || !name.trim()) return;
+  const j = await post('/api/collections/create', { name: name.trim() });
+  if (j.error) return alert('创建失败：' + j.error);
+  refreshHistColl(); mgRender();
+}
+async function mgRename(cid, cur){
+  const name = prompt('重命名收藏夹（默认夹也可改名）：', cur);
+  if (!name || !name.trim() || name === cur) return;
+  const j = await post('/api/collections/rename', { id: cid, name: name.trim() });
+  if (j.error) return alert('重命名失败：' + j.error);
+  refreshHistColl(); mgRender();
+}
+async function mgDelete(cid, name){
+  if (!confirm(`删除收藏夹「${name}」？\n（只解除关联，不会删除 outputs/ 里的图片）`)) return;
+  const j = await post('/api/collections/delete', { id: cid });
+  if (j.error) return alert('删除失败：' + j.error);
+  if (mgOpenId === cid) mgOpenId = null;
+  refreshHistColl(); mgRender();
+}
+async function mgRemoveItem(cid, name){
+  const j = await post('/api/collections/item', { id: cid, name, add: false });
+  if (j.error) return alert('移出失败：' + j.error);
+  mgRender();
+}
+
+async function mgExport(cid){
+  const r = await fetch('/api/collections/export?id=' + encodeURIComponent(cid));
+  const ct = r.headers.get('Content-Type') || '';
+  if (!ct.includes('application/zip')){
+    const j = await r.json().catch(() => ({}));
+    return alert('导出失败：' + (j.error || '未知错误'));
+  }
+  const blob = await r.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = cid === 'all' ? 'snoakari-favorites-all.zip' : 'snoakari-favorites.zip';
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function mgImportZip(){
+  const inp = $('mgZipFile');
+  inp.onchange = async () => {
+    const f = inp.files[0];
+    inp.value = '';
+    if (!f) return;
+    const r = await fetch('/api/collections/import', { method: 'POST', body: f });
+    const j = await r.json();
+    if (j.error) return alert('导入失败：' + j.error);
+    alert(`导入完成：\n新建收藏夹 ${j.created} 个、合并 ${j.merged} 个\n新增图片 ${j.added} 张、内容重复跳过 ${j.skipped} 张`);
+    refreshHistColl(); mgRender();
+  };
+  inp.click();
+}
+
+function mgImportImages(cid){
+  const inp = $('mgImgFiles');
+  inp.onchange = async () => {
+    const fs = [...inp.files];
+    inp.value = '';
+    if (!fs.length) return;
+    let ok = 0;
+    const fail = [];
+    for (const f of fs){
+      try{
+        const r = await fetch('/api/collections/import_image?name=' + encodeURIComponent(f.name),
+                               { method: 'POST', body: f });
+        const j = await r.json();
+        if (j.error){ fail.push(f.name + '：' + j.error); continue; }
+        await post('/api/collections/item', { id: cid, name: j.name, add: true });
+        ok++;
+      }catch(e){ fail.push(f.name + '：' + e); }
+    }
+    alert('导入 ' + ok + ' 张' + (fail.length ? '；失败：\n' + fail.join('\n') : ''));
+    refreshHistColl(); mgRender();
+  };
+  inp.click();
+}
+
+async function mgAddFromHistory(cid){
+  const items = await (await fetch('/api/history')).json();
+  const imgs = items.error ? [] : items;
+  const col = (await mgData()).collections.find(c => c.id === cid) || { items: [] };
+  const inCol = await (await fetch('/api/history?cid=' + encodeURIComponent(cid))).json();
+  const inSet = new Set((inCol.error ? [] : inCol).map(x => x.name));
+  $('mgPickerGrid').innerHTML = imgs.length ? imgs.map(im => `
+    <div class="card${inSet.has(im.name) ? ' fav' : ''}" data-name="${im.name}">
+      <img src="${im.url}" data-full="${im.url}" loading="lazy">
+      <div class="meta"><span>${im.name}</span></div>
+      <div class="ops"><a href="javascript:void(0)" onclick="mgPick('${cid}','${im.name}',this)">${inSet.has(im.name) ? '✓ 已加入' : '加入'}</a></div>
+    </div>`).join('') : '<div class="empty">outputs/ 里还没有图片</div>';
+  $('mgPickerTitle').textContent = '从历史添加到「' + (col.name || '') + '」';
+  bindCard();
+  $('mgPickerModal').style.display = 'flex';
+}
+async function mgPick(cid, name, a){
+  const j = await post('/api/collections/item', { id: cid, name, add: true });
+  if (j.error) return alert('加入失败：' + j.error);
+  a.textContent = '✓ 已加入';
+  a.closest('.card').classList.add('fav');
+  refreshHistColl();
+}
+function mgClosePicker(){
+  $('mgPickerModal').style.display = 'none';
+  mgRender();
 }

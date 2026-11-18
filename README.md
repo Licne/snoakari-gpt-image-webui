@@ -1,6 +1,6 @@
 # SnoAkari gpt-image WebUI
 
-[![Version](https://img.shields.io/badge/version-2.0.0-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.1.0-green)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
@@ -34,7 +34,7 @@ Windows 双击 `启动WebUI.bat` 即可，浏览器自动打开 http://127.0.0.1
 - 后台任务：生成中转入后台继续填参，任务面板看进度、可中止、失败可原参数重试
 - 分组管理：多组地址/密钥/模型列表，页顶一键切换，可接任意 OpenAI 协议服务
 - 模型系列参数适配：gpt-image 系全参数，其他系列自动隐藏不兼容参数
-- 收藏管理：收藏夹分组、本地图片导入、导出/导入跨电脑迁移（开发中）
+- 收藏管理：收藏夹分组、本地图片导入、导出/导入跨电脑迁移（zip 导出包，内容哈希去重）
 
 - 隐私遮罩：上班摸鱼模糊全部预览图，单击单张切换，双击放大查看
 - 快捷引用改图：历史图片一键把图加进改图输入列表

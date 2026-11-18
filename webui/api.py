@@ -13,14 +13,15 @@ import urllib.request
 import uuid
 from http.server import BaseHTTPRequestHandler
 
+from . import collections as CL
 from .generate import do_generate, run_bg_generate
 from .jobs import (_ACTIVE_JOBS, _BG_JOBS, _JOBS_LOCK, _bg_register,
                    _bg_finish, _kill_response)
 from .network import _make_opener, set_proxy
 from .storage import (BACKGROUNDS, FORMATS, IMG_MIMES, MODELS, MODERATIONS,
                        OUTPUT_DIR, QUALITIES, SIZE_GROUPS, SIZE_PRESETS,
-                       _read_disk_config, _write_disk_config, load_favs, log,
-                       mask_key, save_config_file, save_favs)
+                       _read_disk_config, _write_disk_config, log,
+                       mask_key, save_config_file)
 from .version import APP_VER
 from .webindex import INDEX_HTML
 
@@ -32,13 +33,15 @@ class ApiMixin(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # 静默访问日志
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra_headers=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for k, v in (extra_headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -49,7 +52,7 @@ class ApiMixin(BaseHTTPRequestHandler):
         if self.path == "/" or self.path.startswith("/index"):
             self._send(200, INDEX_HTML.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path.startswith("/outputs/"):
-            name = os.path.basename(self.path[len("/outputs/"):])
+            name = os.path.basename(urllib.parse.unquote(self.path[len("/outputs/"):]))
             ext = os.path.splitext(name)[1].lower()
             if ext not in IMG_MIMES or not re.fullmatch(r"[\w.-]+", name):
                 return self._send(404, {"error": "not found"})
@@ -103,25 +106,43 @@ class ApiMixin(BaseHTTPRequestHandler):
             self._send(200, {"jobs": jobs[:30]})
         elif self.path.startswith("/api/history"):
             os.makedirs(OUTPUT_DIR, exist_ok=True)
-            favs = load_favs()
-            fav_only = "fav=1" in self.path
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            fav_only = (qs.get("fav") or [""])[0] == "1"
+            cid = (qs.get("cid") or [""])[0].strip()
+            favs = CL.default_items()
+            try:
+                sel = CL.items_of(cid) if cid else (favs if fav_only else None)
+            except ValueError:
+                return self._send(200, {"error": "收藏夹不存在"})
             items = []
             for fn in os.listdir(OUTPUT_DIR):
                 ext = os.path.splitext(fn)[1].lower()
                 if ext in IMG_MIMES:
-                    if fav_only and fn not in favs:
+                    if sel is not None and fn not in sel:
                         continue
                     st = os.stat(os.path.join(OUTPUT_DIR, fn))
                     items.append({"name": fn, "url": f"/outputs/{fn}",
                                   "size": st.st_size, "mtime": st.st_mtime,
                                   "fav": fn in favs})
             items.sort(key=lambda x: -x["mtime"])
-            self._send(200, items[:500] if fav_only else items[:200])
+            self._send(200, items[:500] if sel is not None else items[:200])
+        elif self.path == "/api/collections":
+            self._send(200, CL.list_collections())
+        elif self.path.startswith("/api/collections/export"):
+            qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+            cid = (qs.get("id") or ["all"])[0]
+            try:
+                data = CL.export_zip(cid)
+            except ValueError as e:
+                return self._send(200, {"error": str(e)})
+            self._send(200, data, "application/zip",
+                       {"Content-Disposition": 'attachment; filename="snoakari-favorites.zip"'})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        if self.path == "/api/settings":
+        path = self.path.split("?", 1)[0]
+        if path == "/api/settings":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 payload = json.loads(self.rfile.read(length).decode("utf-8"))
@@ -150,7 +171,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
 
-        if self.path == "/api/groups":
+        if path == "/api/groups":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -208,7 +229,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
 
-        if self.path == "/api/group/switch":
+        if path == "/api/group/switch":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -240,7 +261,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
 
-        if self.path == "/api/models":
+        if path == "/api/models":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -267,7 +288,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"拉取失败：{e}"})
             return
 
-        if self.path == "/api/fav":
+        if path == "/api/fav":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -277,17 +298,16 @@ class ApiMixin(BaseHTTPRequestHandler):
                     return self._send(200, {"error": "非法文件名"})
                 if not os.path.isfile(os.path.join(OUTPUT_DIR, name)):
                     return self._send(200, {"error": "文件不存在"})
-                favs = load_favs()
                 want = bool(p.get("fav"))
-                (favs.add if want else favs.discard)(name)
-                save_favs(favs)
+                cid = CL.load_collections()["default_id"]
+                CL.set_item(cid, name, want)
                 log(f"收藏{'添加' if want else '取消'}：{name}")
                 self._send(200, {"ok": True, "fav": want})
             except Exception as e:
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
 
-        if self.path == "/api/rename":
+        if path == "/api/rename":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -303,18 +323,92 @@ class ApiMixin(BaseHTTPRequestHandler):
                 if os.path.normcase(src_p) != os.path.normcase(dst_p) and os.path.exists(dst_p):
                     return self._send(200, {"error": "已存在同名文件"})
                 os.rename(src_p, dst_p)
-                favs = load_favs()
-                if name in favs:
-                    favs.discard(name)
-                    favs.add(to)
-                    save_favs(favs)
+                CL.rename_file(name, to)
                 log(f"重命名：outputs/{name} -> outputs/{to}")
                 self._send(200, {"ok": True, "name": to, "url": f"/outputs/{to}"})
             except Exception as e:
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
 
-        if self.path == "/api/cancel":
+        if path == "/api/collections/create":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send(200, CL.create_collection(p.get("name")))
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/collections/rename":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send(200, CL.rename_collection((p.get("id") or "").strip(), p.get("name")))
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/collections/delete":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8"))
+                self._send(200, CL.delete_collection((p.get("id") or "").strip()))
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/collections/item":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8"))
+                cid = (p.get("id") or "").strip()
+                name = (p.get("name") or "").strip()
+                if not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
+                    return self._send(200, {"error": "非法文件名"})
+                self._send(200, CL.set_item(cid, name, bool(p.get("add"))))
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/collections/import_image":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 60 * 1024 * 1024:
+                    return self._send(200, {"error": "图片过大（>60MB）"})
+                qs = urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)
+                raw_name = (qs.get("name") or [""])[0]
+                if raw_name != os.path.basename(raw_name) or not raw_name.strip():
+                    return self._send(200, {"error": "非法文件名"})
+                final, same = CL.import_image_bytes(self.rfile.read(length), raw_name)
+                log(f"导入图片：{raw_name} -> {final}" + ("（内容重复，已复用）" if same else ""))
+                self._send(200, {"name": final, "dup": same})
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/collections/import":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                if length > 500 * 1024 * 1024:
+                    return self._send(200, {"error": "收藏包过大（>500MB）"})
+                self._send(200, CL.import_zip(self.rfile.read(length)))
+            except ValueError as e:
+                self._send(200, {"error": str(e)})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/cancel":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -335,7 +429,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
-        if self.path == "/api/jobs/background":
+        if path == "/api/jobs/background":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -350,7 +444,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
-        if self.path == "/api/jobs/retry":
+        if path == "/api/jobs/retry":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -382,7 +476,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
-        if self.path == "/api/jobs/delete":
+        if path == "/api/jobs/delete":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
@@ -397,14 +491,14 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
 
-        if self.path == "/api/jobs/clear":
+        if path == "/api/jobs/clear":
             with _JOBS_LOCK:
                 for k in [k for k, v in _BG_JOBS.items() if v["status"] != "running"]:
                     _BG_JOBS.pop(k, None)
             self._send(200, {"ok": True})
             return
 
-        if self.path != "/api/generate":
+        if path != "/api/generate":
             return self._send(404, {"error": "not found"})
         try:
             length = int(self.headers.get("Content-Length") or 0)

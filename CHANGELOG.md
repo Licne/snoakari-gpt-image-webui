@@ -3,12 +3,23 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [2.1.0] - 2026-11-18
 
-### Planned
+### Added
 
-- 作品管理页：收藏夹（创建/重命名/删除/默认夹）、工作区收藏夹筛选下拉、本地图片导入
-- 收藏夹导出/导入：自包含 zip（manifest + 图片本体），跨电脑迁移素材
+- **作品管理**（页顶新增「工作区 / 作品管理」视图切换）：
+  - 收藏夹管理：新建 / 重命名 / 删除（默认夹「我的收藏」不可删、可改名）；删除收藏夹只解除关联，不删 outputs/ 图片
+  - 收藏夹详情：浏览夹内图片，支持引用（加入改图输入）、下载、移出
+  - 导入图片：把本地图片导入到指定收藏夹（复制进 outputs/ 统一存放，支持中文文件名）
+  - 从历史添加：选择器网格从 outputs/ 历史中批量加入当前夹
+  - 一张图可属于多个收藏夹
+- **收藏夹导出 / 导入**：导出自包含 zip（manifest.json + 图片本体，按单夹或全部导出）；导入自动识别导出包——同名收藏夹合并、文件按内容哈希去重（同内容跳过、同名不同内容自动加后缀），完成后弹汇总（新建/合并夹数、新增/跳过张数）
+- 工作区历史区新增收藏夹筛选下拉（默认不筛选），与「只看收藏」并存
+- 工作区「收藏」星标直达默认收藏夹；图片重命名后所有收藏夹条目自动跟随
+
+### Changed
+
+- 收藏数据从 favorites.json（单一清单）升级为 collections.json（多收藏夹结构）；首次启动自动把旧收藏迁移进默认夹「我的收藏」，旧文件保留不动
 
 ## [2.0.0] - 2026-11-18
 
@@ -76,7 +87,7 @@
 - 模型系列参数适配（gpt-image 系全参数；nano-banana/gemini/grok 系仅基础参数）
 - 收藏 / 重命名 / 引用 / 本地查看 / 中止请求 / 隐私遮罩 / 参数本地记忆
 
-[Unreleased]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.0.0...HEAD
+[2.1.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v1.3.1...v2.0.0
 [1.3.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v1.2.0...v1.3.0
