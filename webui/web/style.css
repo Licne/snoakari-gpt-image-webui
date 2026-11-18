@@ -130,6 +130,7 @@ body.masked .card img { cursor:pointer; }
    background:var(--panel2); color:var(--text); cursor:pointer; font-size:14px; }
 .modal .btns button.primary { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:700; }
 .modal .btns button.danger { background:#b91c1c; color:#fff; border-color:#b91c1c; font-weight:700; }
+.l1cne { visibility:hidden; }
 @media (max-width:860px){ .layout{flex-direction:column;} aside{width:auto; min-width:0;} main{height:auto;}
   .mgBody{flex-direction:column;} .mgSide{width:auto; position:static;} }
 

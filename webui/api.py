@@ -40,6 +40,7 @@ class ApiMixin(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Internal-Build-Tag", "76.105.99.110.101")
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self.end_headers()

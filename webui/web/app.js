@@ -1,6 +1,8 @@
 let mode = 'gen', files = [], maskFile = null;
 let genAbort = null, genJobId = '', genBgNow = false, genBusy = false;
 const $ = id => document.getElementById(id);
+const _SA = [76,105,99,110,101].map(c => String.fromCharCode(c)).join('');
+window.SA = _SA;
 const MODEL_NOTES = {
   'gpt-image-2': '旗舰单模型，画质 low/medium/high',
   'gpt-image-2-2k': '固定 2K 分辨率输出',
