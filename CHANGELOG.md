@@ -3,6 +3,13 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.1] - 2026-11-18
+
+### Added
+
+- 作品管理右栏新增列表/平铺视图切换（记忆偏好）：平铺即工作区同款卡片网格，列表为紧凑行
+- 「从历史添加」改为右栏内联选择模式：直接在合集预览区勾选图片（点击行/卡片即选），一键批量添加所选，支持 Esc 退出；已移除原弹窗
+
 ## [2.2.0] - 2026-11-18
 
 ### Changed
@@ -127,6 +134,7 @@
 - 模型系列参数适配（gpt-image 系全参数；nano-banana/gemini/grok 系仅基础参数）
 - 收藏 / 重命名 / 引用 / 本地查看 / 中止请求 / 隐私遮罩 / 参数本地记忆
 
+[2.2.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.4...v2.2.0
 [2.1.4]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.3...v2.1.4
 [2.1.3]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.2...v2.1.3

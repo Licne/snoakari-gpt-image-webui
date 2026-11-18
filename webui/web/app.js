@@ -647,7 +647,11 @@ function applyModels(models, model){
 
 
 /* ==================== 作品管理（收藏夹） ==================== */
-let mgOpenId = null;       // 当前打开的收藏夹 id；null = 列表视图
+let mgOpenId = null;
+let mgLayout = localStorage.getItem('mgLayout') || 'list';
+let mgPicking = false;
+let mgSel = new Set();
+let mgDataCache = null;       // 当前打开的收藏夹 id；null = 列表视图
 function mgViewVisible(){ return $('mgView') && $('mgView').style.display !== 'none'; }
 
 function showView(v){
@@ -673,6 +677,7 @@ async function refreshHistColl(){
 
 async function mgRender(){
   const s = await mgData();
+  mgDataCache = s;
   if (s.error){ $('mgSide').innerHTML = '<div class="empty">' + s.error + '</div>';
                 $('mgMain').innerHTML = ''; return; }
   if (mgOpenId && !(s.collections || []).some(c => c.id === mgOpenId)) mgOpenId = null;
@@ -716,33 +721,126 @@ function mgRenderSide(s){
 async function mgRenderMain(s){
   const c = (s.collections || []).find(x => x.id === mgOpenId);
   if (!c){
-    $('mgMain').innerHTML = '<div class="empty">← 从左侧选择一个收藏夹，或点「＋ 新建」创建</div>';
+    $('mgMain').innerHTML = '<div class="empty">← 从左侧选择一个收藏夹，或点「＋ 新建合集」创建</div>';
     return;
   }
+  if (mgPicking) return mgRenderPicker(s, c);
   const items = await (await fetch('/api/history?cid=' + encodeURIComponent(c.id))).json();
   const imgs = items.error ? [] : items;
   $('mgMain').innerHTML = `
     <div class="mgDetailHead">
       <span class="mgName">${c.is_default ? '⭐' : '📁'} ${c.name} · ${imgs.length} 张</span>
       <div class="mgBtns">
+        ${mgLayBtnHtml()}
         <button onclick="mgImportImages('${c.id}')">导入图片</button>
-        <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
+        <button onclick="mgStartPicker('${c.id}')">从历史添加</button>
       </div>
     </div>
-    <div class="mgList" id="mgGrid">
-      ${imgs.length ? imgs.map(im => `
-        <div class="mgRow" data-name="${im.name}">
-          <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
-          <span class="mgRowName">${im.name}</span>
-          <span class="mgRowInfo"><span class="dims">…</span>${im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : ''}</span>
-          <span class="mgRowOps">
-            <a href="${im.url}" download="${im.name}">下载</a>
-            <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${c.id}','${im.name}')">移出</a>
-          </span>
-        </div>`).join('')
-        : '<div class="empty">收藏夹是空的：用「导入图片」或「从历史添加」加入素材</div>'}
-    </div>`;
+    ${mgRenderImgs(imgs, c.id, false)}`;
   bindCard();
+}
+
+function mgLayBtnHtml(){
+  return `<button title="${mgLayout === 'list' ? '切换为平铺' : '切换为列表'}" onclick="mgToggleLayout()">${mgLayout === 'list' ? '⊞ 平铺' : '☰ 列表'}</button>`;
+}
+
+function mgRenderImgs(imgs, cid, pick){
+  const emptyTxt = pick ? '没有可添加的图片' : '收藏夹是空的：用「导入图片」或「从历史添加」加入素材';
+  const kb = im => im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : '';
+  if (mgLayout === 'grid'){
+    const body = imgs.map(im => `
+      <div class="card${pick ? ' pick' : ''}${pick && mgSel.has(im.name) ? ' picksel' : ''}" data-name="${im.name}"${pick ? ` onclick="mgToggleSel('${im.name}')"` : ''}>
+        <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="${pick ? '点击选择，双击放大预览' : '双击放大预览'}">
+        ${pick ? `<span class="mgCheck">${mgSel.has(im.name) ? '✓' : ''}</span>` : ''}
+        <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb(im)}</span></div>
+        ${pick ? '' : `<div class="ops">
+          <a href="${im.url}" download="${im.name}">下载</a>
+          <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
+        </div>`}
+      </div>`).join('');
+    return `<div class="grid mgGrid">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
+  }
+  const body = imgs.map(im => `
+    <div class="mgRow${pick ? ' pick' : ''}${pick && mgSel.has(im.name) ? ' picksel' : ''}" data-name="${im.name}"${pick ? ` onclick="mgToggleSel('${im.name}')"` : ''}>
+      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="${pick ? '点击选择，双击放大预览' : '双击放大预览'}">
+      ${pick ? `<span class="mgCheck">${mgSel.has(im.name) ? '✓' : ''}</span>` : ''}
+      <span class="mgRowName">${im.name}</span>
+      ${pick ? '' : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
+      <span class="mgRowOps">
+        <a href="${im.url}" download="${im.name}">下载</a>
+        <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
+      </span>`}
+    </div>`).join('');
+  return `<div class="mgList">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
+}
+
+function mgToggleLayout(){
+  mgLayout = mgLayout === 'list' ? 'grid' : 'list';
+  localStorage.setItem('mgLayout', mgLayout);
+  mgRenderMain(mgDataCache);
+}
+
+async function mgStartPicker(cid){
+  mgPicking = true;
+  mgSel = new Set();
+  const s = await mgData();
+  mgDataCache = s;
+  mgRenderMain(s);
+}
+
+async function mgRenderPicker(s, c){
+  const all = await (await fetch('/api/history')).json();
+  const inCol = await (await fetch('/api/history?cid=' + encodeURIComponent(c.id))).json();
+  const inSet = new Set((inCol.error ? [] : inCol).map(x => x.name));
+  const imgs = (all.error ? [] : all).filter(im => !inSet.has(im.name));
+  $('mgMain').innerHTML = `
+    <div class="mgDetailHead">
+      <span class="mgName">从历史添加到「${c.name}」· 已选 ${mgSel.size} 张</span>
+      <div class="mgBtns">
+        ${mgLayBtnHtml()}
+        <button onclick="mgPickCancel()">返回</button>
+        <button id="mgPickAdd" onclick="mgPickAdd('${c.id}')">添加所选（${mgSel.size}）</button>
+      </div>
+    </div>
+    ${imgs.length ? mgRenderImgs(imgs, c.id, true) : '<div class="empty">没有可添加的图片（其余已在合集中）</div>'}`;
+  bindCard();
+}
+
+function mgToggleSel(name){
+  if (mgSel.has(name)) mgSel.delete(name); else mgSel.add(name);
+  const on = mgSel.has(name);
+  const row = [...document.querySelectorAll('.mgRow[data-name],.card[data-name]')].find(r => r.dataset.name === name);
+  if (row){
+    row.classList.toggle('picksel', on);
+    const chk = row.querySelector('.mgCheck');
+    if (chk) chk.textContent = on ? '✓' : '';
+  }
+  const btn = $('mgPickAdd');
+  if (btn) btn.textContent = `添加所选（${mgSel.size}）`;
+  const head = document.querySelector('.mgDetailHead .mgName');
+  if (head) head.textContent = head.textContent.replace(/已选 \d+ 张/, `已选 ${mgSel.size} 张`);
+}
+
+async function mgPickAdd(cid){
+  if (!mgSel.size) return alert('先勾选要添加的图片');
+  let ok = 0;
+  const fail = [];
+  for (const name of mgSel){
+    const j = await post('/api/collections/item', { id: cid, name, add: true });
+    if (j.error) fail.push(name); else ok++;
+  }
+  mgPicking = false;
+  mgSel.clear();
+  refreshHistColl();
+  mgRender();
+  if (fail.length) alert('添加失败：\n' + fail.join('\n'));
+  else logMsg?.('已添加 ' + ok + ' 张');
+}
+
+function mgPickCancel(){
+  mgPicking = false;
+  mgSel.clear();
+  mgRender();
 }
 
 function mgOpen(cid){ mgOpenId = cid; mgRender(); }
@@ -828,36 +926,8 @@ function mgImportImages(cid){
   inp.click();
 }
 
-async function mgAddFromHistory(cid){
-  const items = await (await fetch('/api/history')).json();
-  const imgs = items.error ? [] : items;
-  const col = (await mgData()).collections.find(c => c.id === cid) || { items: [] };
-  const inCol = await (await fetch('/api/history?cid=' + encodeURIComponent(cid))).json();
-  const inSet = new Set((inCol.error ? [] : inCol).map(x => x.name));
-  $('mgPickerGrid').innerHTML = imgs.length ? imgs.map(im => `
-    <div class="mgRow${inSet.has(im.name) ? ' fav' : ''}" data-name="${im.name}">
-      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
-      <span class="mgRowName">${im.name}</span>
-      <a href="javascript:void(0)" class="mgPickBtn" onclick="mgPick('${cid}','${im.name}',this)">${inSet.has(im.name) ? '✓ 已加入' : '加入'}</a>
-    </div>`).join('') : '<div class="empty">outputs/ 里还没有图片</div>';
-  $('mgPickerTitle').textContent = '从历史添加到「' + (col.name || '') + '」';
-  bindCard();
-  $('mgPickerModal').style.display = 'flex';
-}
-async function mgPick(cid, name, a){
-  const j = await post('/api/collections/item', { id: cid, name, add: true });
-  if (j.error) return alert('加入失败：' + j.error);
-  a.textContent = '✓ 已加入';
-  a.classList.add('in');
-  a.closest('.mgRow').classList.add('fav');
-  refreshHistColl();
-}
-function mgClosePicker(){
-  $('mgPickerModal').style.display = 'none';
-  mgRender();
-}
 document.addEventListener('keydown', e => {
   if (e.key !== 'Escape') return;
   if ($('lb').style.display === 'flex') { $('lb').style.display = 'none'; return; }
-  if ($('mgPickerModal').style.display === 'flex') mgClosePicker();
+  if (mgPicking) mgPickCancel();
 });
