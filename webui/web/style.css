@@ -15,13 +15,6 @@ main { flex:1; overflow-y:auto; padding:18px 24px; }
 .headTop { width:100%; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
 h1 { font-size:18px; margin:0 0 2px; }
 h1 span { color:var(--acc); }
-/* SnoAkari 品牌字标 · 极光微光配色：雪白 -> 极光青渐变，i 点为发光光点 */
-h1 .brand { background:linear-gradient(92deg,#f5f7ff 45%,#bdf2e3 78%,#6fe3c1 108%);
-  -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; }
-h1 .lgi { position:relative; display:inline-block; }
-h1 .lgi::after { content:""; position:absolute; left:50%; top:.36em; transform:translateX(-50%);
-  width:.13em; height:.13em; border-radius:50%; background:#6fe3c1;
-  box-shadow:0 0 .3em rgba(111,227,193,.95),0 0 .7em rgba(111,227,193,.5); }
 .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
 #groupSel { background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px;
   padding:6px 10px; font-size:12.5px; width:auto; max-width:220px; }
