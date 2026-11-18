@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SnoAkari gpt-image WebUI</title>
+<!--STYLE-->
+</head>
+<body>
+<div class="layout">
+<aside>
+  <div class="head">
+    <div class="headTop">
+      <div>
+        <h1>SnoAkari <span>gpt-image WebUI</span></h1>
+        <div class="sub">本地调用 NewAPI 中转站 · 参数图形化配置</div>
+      </div>
+      <button class="gear" onclick="openSettings()" title="设置" aria-label="设置">⚙</button>
+    </div>
+    <select id="groupSel" title="切换中转站分组" onchange="switchGroupHeader()"></select>
+  </div>
+
+  <div class="tabs">
+    <button id="tabGen" class="active" onclick="setMode('gen')">文生图</button>
+    <button id="tabEdit" onclick="setMode('edit')">改图 / 多图融合</button>
+  </div>
+
+  <label>提示词 <small>（上限 32000 字符）</small></label>
+  <textarea id="prompt" placeholder="描述要生成的画面……"></textarea>
+
+  <div id="editBox" style="display:none">
+    <label>输入图片（可多张融合，最多 16 张）</label>
+    <div class="drop" id="drop">点击选择或拖拽图片到此处<small>（PNG / JPG / WEBP，单张 ≤ 20MB）</small></div>
+    <input type="file" id="file" accept="image/*" multiple hidden>
+    <div class="thumbs" id="thumbs"></div>
+
+    <label>蒙版 mask <small>（可选，仅改图：透明区域=要修改的部分）</small></label>
+    <div class="drop" id="dropMask">点击选择 PNG 蒙版（可选）</div>
+    <input type="file" id="fileMask" accept="image/png" hidden>
+    <div class="thumbs" id="thumbMask"></div>
+    <button type="button" class="maskbtn" onclick="openMaskEditor()">✏ 在第一张原图上绘制蒙版（推荐）</button>
+  </div>
+
+  <div class="sect">
+    <div class="t">基本参数</div>
+    <label>模型</label>
+    <select id="model"></select>
+    <div class="hint" id="modelHint"></div>
+
+    <div class="row">
+      <div>
+        <label>尺寸</label>
+        <div class="sizeRow">
+          <select id="sizeRatio"></select>
+          <select id="sizeTier" style="display:none"></select>
+        </div>
+      </div>
+      <div id="customSizeBox" style="display:none">
+        <label>自定义 WxH</label>
+        <input type="text" id="customSize" placeholder="2048x1152">
+      </div>
+    </div>
+    <div class="hint" id="sizeHint"></div>
+
+    <div class="row">
+      <div><label>张数 n <small>(1~10)</small></label>
+        <select id="n"></select>
+      </div>
+      <div><label>画质 quality</label>
+        <select id="quality"></select>
+      </div>
+    </div>
+    <div class="hint">画质档位：low / medium / high / auto 通用；<b>xhigh / max 仅 2.5 及以上系列</b>。
+      画质越高耗时与费用越高。</div>
+  </div>
+
+  <div class="sect" id="outSect">
+    <div class="t">输出选项 <small>（仅 gpt-image 系列支持）</small></div>
+    <div class="row">
+      <div><label>背景 background <small>(仅文生图)</small></label>
+        <select id="background"></select>
+      </div>
+      <div><label>输出格式</label>
+        <select id="format"></select>
+      </div>
+    </div>
+    <div id="compBox" style="display:none">
+      <label>压缩率 output_compression</label>
+      <div class="slider">
+        <input type="range" id="comp" min="0" max="100" value="100">
+        <span id="compVal">100</span>
+      </div>
+      <div class="hint">0~100，数值越小文件越小（仅 jpeg / webp 有效）。</div>
+    </div>
+    <label>内容审核 moderation</label>
+    <select id="moderation"></select>
+    <div class="hint">low = 更宽松的过滤；auto = 默认。</div>
+  </div>
+
+  <button id="go" onclick="generate()">生成（约 60~90 秒 / 张）</button>
+  <div class="status" id="status"></div>
+  <button id="toBgBtn" class="bgBtn" style="display:none" onclick="toBackground()">转入后台，继续填写参数</button>
+  <div id="jobsPanel" class="jobsPanel" style="display:none">
+    <div class="jobsHead">
+      <span>后台任务（<span id="jobsRun">0</span> 个进行中）</span>
+      <span>
+        <a href="javascript:void(0)" onclick="refreshJobs(true)">刷新</a>
+        <a href="javascript:void(0)" onclick="clearJobs()">清除已完成</a>
+        <a href="javascript:void(0)" onclick="toggleJobsPanel(false)">收起</a>
+      </span>
+    </div>
+    <div id="jobsList"></div>
+  </div>
+</aside>
+
+<main>
+  <h2>本次结果 <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button></h2>
+  <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
+  <h2 style="margin-top:24px">历史记录（outputs/ 目录）
+    <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
+  </h2>
+  <div class="grid" id="history"><div class="empty">加载中……</div></div>
+</main>
+</div>
+
+<div class="lightbox" id="lb" onclick="this.style.display='none'"><img id="lbImg"></div>
+
+<div class="modal" id="maskModal">
+  <div class="box" style="width:min(94vw,960px)">
+    <h3>✏ 绘制蒙版</h3>
+    <div class="sub">在原图上用红色笔刷涂抹“要修改的区域”，保存后涂抹处即为 AI 重绘区域，其余保持原样</div>
+    <div class="mcanvasWrap"><canvas id="maskCv"></canvas></div>
+    <div class="slider" style="margin-top:12px">
+      <small>笔刷</small>
+      <input type="range" id="brushSize" min="8" max="120" value="36">
+      <span id="brushVal">36</span>
+    </div>
+    <div class="btns">
+      <button onclick="closeMaskEditor()">取消</button>
+      <button onclick="clearMaskCanvas()">清空重画</button>
+      <button class="primary" onclick="saveMaskEditor()">保存蒙版</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="settingsModal">
+  <div class="box" style="max-width:560px">
+    <h3>⚙ 中转站分组管理</h3>
+    <div class="sub">每组独立配置地址/密钥/模型列表；修改后写入同目录 config.json</div>
+
+    <label>分组</label>
+    <select id="setGroup" onchange="renderGroupEditor()"></select>
+    <div class="btns" style="margin:8px 0 14px">
+      <button onclick="newGroup()">＋ 新增分组</button>
+      <button onclick="delGroup()">删除分组</button>
+      <button onclick="useGroup()">启用此组</button>
+    </div>
+
+    <label>分组名称</label>
+    <input type="text" id="grpName">
+    <label>中转站地址 base_url</label>
+    <input type="text" id="grpUrl" placeholder="https://xxx.com">
+    <label>API 密钥 <small id="keyMasked"></small></label>
+    <input type="text" id="grpKey" placeholder="留空表示不修改">
+    <label>网络代理 <small>（可选，如 http://127.0.0.1:7890；留空=直连）</small></label>
+    <input type="text" id="grpProxy" placeholder="http://127.0.0.1:7890（留空直连）">
+    <label>模型列表 <small>（每行一个，切换分组时下拉随之变化）</small></label>
+    <textarea id="grpModels" rows="6" placeholder="每行一个模型名，或点下方按钮从接口拉取"></textarea>
+    <div class="btns" style="margin:8px 0 4px">
+      <button onclick="fetchModels()">从接口拉取模型列表</button>
+      <button class="primary" onclick="saveAllGroups()">保存全部分组</button>
+    </div>
+    <div class="btns">
+      <button onclick="closeSettings()">关闭</button>
+    </div>
+    <div class="status" id="setStatus"></div>
+    <div class="ver">SnoAkari gpt-image WebUI · v__APP_VER__</div>
+  </div>
+</div>
+
+<!--SCRIPT-->
+</body>
+</html>

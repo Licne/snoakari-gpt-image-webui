@@ -2,7 +2,7 @@
 
 零依赖的本地 WebUI：浏览器里调用任意 NewAPI 中转站的 gpt-image / nano-banana / gemini 等图像模型，文生图、改图、多图融合。纯 Python 标准库实现，单文件 app.py，Windows 双击即用，支持跨平台运行。
 
-> 当前版本 **v1.3.1**（版本号见 ⚙ 设置弹窗底部）
+> 当前版本 **v2.0.0**（版本号见 ⚙ 设置弹窗底部）
 
 ## 怎么启动
 
@@ -15,7 +15,7 @@ http://127.0.0.1:8787 即可使用（若未自动弹出，手动访问该地址�
 
 ## 首次配置（必看）
 
-1. 复制 `config.example.json` 为 `config.json`（Windows：复制粘贴后重命名）
+1. 复制 `config.example.json` 为 `data/config.json`（Windows：复制粘贴后重命名）
 2. 编辑 `config.json`，填入你的中转站地址与 API 密钥：
 
 ```json
@@ -28,14 +28,15 @@ http://127.0.0.1:8787 即可使用（若未自动弹出，手动访问该地址�
 
 ## 文件说明
 
-| 文件 | 作用 |
+| 文件/目录 | 作用 |
 |---|---|
 | `启动WebUI.bat` | 双击启动（推荐） |
-| `app.py` | 主程序（WebUI + API 代理，勿用记事本随意改动） |
-| `config.example.json` | 配置模板（复制为 `config.json` 后填写密钥） |
-| `config.json` | 你的本地配置（含明文 key，已被 .gitignore 排除，不会入库） |
-| `favorites.json` | 收藏标记（本地数据，已被 .gitignore 排除） |
-| `outputs/` | 生成图片自动保存目录（已被 .gitignore 排除） |
+| `app.py` | 启动入口（几十行，只负责拉起 webui 包） |
+| `webui/` | 程序本体：server（服务器）/ api（接口）/ generate（生成）/ jobs（任务）/ network（网络）/ storage（存储）/ web/（前端源文件） |
+| `config.example.json` | 配置模板（复制为 `data/config.json` 后填写密钥） |
+| `data/` | 本地数据目录：config.json（配置）、favorites.json（收藏）、outputs/（生成图）。已被 .gitignore 排除；整机迁移只需拷贝此目录 |
+
+> v2.0 起项目从单文件 app.py 重构为模块化结构，用户数据集中到 `data/` 目录。从 v1 升级：下载新版后用新目录启动一次，旧 `config.json` / `favorites.json` / `outputs/` 会自动迁移进 `data/`（原位置文件被移动，不会重复）。
 
 ## 功能
 
