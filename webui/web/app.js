@@ -747,29 +747,35 @@ function mgRenderImgs(imgs, cid, pick){
   const emptyTxt = pick ? '没有可添加的图片' : '收藏夹是空的：用「导入图片」或「从历史添加」加入素材';
   const kb = im => im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : '';
   if (mgLayout === 'grid'){
-    const body = imgs.map(im => `
-      <div class="card${pick ? ' pick' : ''}${pick && mgSel.has(im.name) ? ' picksel' : ''}" data-name="${im.name}"${pick ? ` onclick="mgToggleSel('${im.name}')"` : ''}>
-        <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="${pick ? '点击选择，双击放大预览' : '双击放大预览'}">
-        ${pick ? `<span class="mgCheck">${mgSel.has(im.name) ? '✓' : ''}</span>` : ''}
+    const body = imgs.map(im => {
+      const sel = mgSel.has(im.name);
+      return `
+      <div class="card${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${im.name}">
+        <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
+        ${pick ? `<span class="mgCheck">${sel ? '✓' : ''}</span>` : ''}
         <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb(im)}</span></div>
-        ${pick ? '' : `<div class="ops">
+        ${pick ? `<div class="ops">
+          <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</a>
+        </div>` : `<div class="ops">
           <a href="${im.url}" download="${im.name}">下载</a>
           <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
         </div>`}
-      </div>`).join('');
+      </div>`;}).join('');
     return `<div class="grid mgGrid">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
   }
-  const body = imgs.map(im => `
-    <div class="mgRow${pick ? ' pick' : ''}${pick && mgSel.has(im.name) ? ' picksel' : ''}" data-name="${im.name}"${pick ? ` onclick="mgToggleSel('${im.name}')"` : ''}>
-      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="${pick ? '点击选择，双击放大预览' : '双击放大预览'}">
-      ${pick ? `<span class="mgCheck">${mgSel.has(im.name) ? '✓' : ''}</span>` : ''}
+  const body = imgs.map(im => {
+    const sel = mgSel.has(im.name);
+    return `
+    <div class="mgRow${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${im.name}">
+      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
       <span class="mgRowName">${im.name}</span>
-      ${pick ? '' : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
+      ${pick ? `<span class="mgPickZone${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</span>`
+        : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
       <span class="mgRowOps">
         <a href="${im.url}" download="${im.name}">下载</a>
         <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
       </span>`}
-    </div>`).join('');
+    </div>`;}).join('');
   return `<div class="mgList">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
 }
 
@@ -808,15 +814,18 @@ async function mgRenderPicker(s, c){
 function mgToggleSel(name){
   if (mgSel.has(name)) mgSel.delete(name); else mgSel.add(name);
   const on = mgSel.has(name);
-  const row = [...document.querySelectorAll('.mgRow[data-name],.card[data-name]')].find(r => r.dataset.name === name);
+  const row = [...document.querySelectorAll('#mgMain .mgRow[data-name],#mgMain .card[data-name]')]
+    .find(r => r.dataset.name === name);
   if (row){
     row.classList.toggle('picksel', on);
     const chk = row.querySelector('.mgCheck');
     if (chk) chk.textContent = on ? '✓' : '';
+    const act = row.querySelector('.mgPickAct, .mgPickZone');
+    if (act){ act.textContent = on ? '✓ 已选' : '选择'; act.classList.toggle('on', on); }
   }
   const btn = $('mgPickAdd');
   if (btn) btn.textContent = `添加所选（${mgSel.size}）`;
-  const head = document.querySelector('.mgDetailHead .mgName');
+  const head = document.querySelector('#mgMain .mgDetailHead .mgName');
   if (head) head.textContent = head.textContent.replace(/已选 \d+ 张/, `已选 ${mgSel.size} 张`);
 }
 

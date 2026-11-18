@@ -177,7 +177,11 @@ body.mgmode aside { display:none; }
 .mgList { display:flex; flex-direction:column; gap:6px; }
 .mgGrid { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:12px; }
 .mgGrid .card { position:relative; }
-.mgRow.pick, .mgGrid .card.pick { cursor:pointer; }
+.mgPickZone { flex-shrink:0; font-size:12px; color:var(--muted); border:1px solid var(--line);
+  border-radius:999px; padding:3px 12px; cursor:pointer; background:var(--panel2); }
+.mgPickZone:hover { border-color:var(--acc); color:var(--acc); }
+.mgPickZone.on { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:600; }
+.card .ops a.mgPickAct.on { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:600; }
 .mgRow .mgCheck { width:22px; height:22px; border:1.5px solid var(--line); border-radius:7px;
   flex-shrink:0; display:flex; align-items:center; justify-content:center;
   color:#06231a; font-size:13px; font-weight:700; }
