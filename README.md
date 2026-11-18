@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
-专为**生图的快速与便捷**而设计：浏览器里调用 OpenAI 兼容协议（`/v1/images/*`）的图像服务——中转站、各类聚合网关均可接入，文生图、改图、多图融合。零依赖纯 Python 标准库，双击即用；密钥只存本机，不经第三方服务器。
+专为**生图的便捷使用**而设计：浏览器里调用 OpenAI 兼容协议（`/v1/images/*`）的图像服务——中转站、各类聚合网关均可接入，文生图、改图、多图融合；分组快速切换中转站，素材统一收藏管理。零依赖纯 Python 标准库，双击即用；密钥只存本机，不经第三方服务器。
 
 ## 快速开始
 
