@@ -182,13 +182,7 @@ body.mgmode aside { display:none; }
 .mgPickZone:hover { border-color:var(--acc); color:var(--acc); }
 .mgPickZone.on { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:600; }
 .card .ops a.mgPickAct.on { background:var(--acc2); color:#06231a; border-color:var(--acc2); font-weight:600; }
-.mgRow .mgCheck { width:22px; height:22px; border:1.5px solid var(--line); border-radius:7px;
-  flex-shrink:0; display:flex; align-items:center; justify-content:center;
-  color:#06231a; font-size:13px; font-weight:700; }
-.mgGrid .card .mgCheck { position:absolute; top:8px; left:8px; width:24px; height:24px;
-  background:var(--panel); border:1.5px solid var(--line); border-radius:7px; }
 .mgRow.picksel, .mgGrid .card.picksel { border-color:var(--acc2); box-shadow:0 0 0 1px var(--acc2) inset; }
-.mgRow.picksel .mgCheck, .mgGrid .card.picksel .mgCheck { background:var(--acc2); border-color:var(--acc2); }
 .mgRow { display:flex; align-items:center; gap:10px; padding:6px 10px;
   border:1px solid var(--line); border-radius:10px; background:var(--panel); }
 .mgRow:hover { border-color:var(--acc); }

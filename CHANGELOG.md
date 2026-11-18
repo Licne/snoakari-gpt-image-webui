@@ -3,6 +3,12 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.4] - 2026-11-18
+
+### Changed
+
+- 从历史添加的卡片移除左上角勾选方框，选中状态由「选择 / ✓ 已选」按钮与高亮边框表达
+
 ## [2.2.3] - 2026-11-18
 
 ### Fixed
@@ -152,6 +158,7 @@
 - 模型系列参数适配（gpt-image 系全参数；nano-banana/gemini/grok 系仅基础参数）
 - 收藏 / 重命名 / 引用 / 本地查看 / 中止请求 / 隐私遮罩 / 参数本地记忆
 
+[2.2.4]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.2.3...v2.2.4
 [2.2.3]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.2.2...v2.2.3
 [2.2.2]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.2.1...v2.2.2
 [2.2.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.2.0...v2.2.1

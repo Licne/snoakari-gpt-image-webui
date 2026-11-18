@@ -752,7 +752,6 @@ function mgRenderImgs(imgs, cid, pick){
       return `
       <div class="card${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${im.name}">
         <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
-        ${pick ? `<span class="mgCheck">${sel ? '✓' : ''}</span>` : ''}
         <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb(im)}</span></div>
         ${pick ? `<div class="ops">
           <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</a>
@@ -818,8 +817,6 @@ function mgToggleSel(name){
     .find(r => r.dataset.name === name);
   if (row){
     row.classList.toggle('picksel', on);
-    const chk = row.querySelector('.mgCheck');
-    if (chk) chk.textContent = on ? '✓' : '';
     const act = row.querySelector('.mgPickAct, .mgPickZone');
     if (act){ act.textContent = on ? '✓ 已选' : '选择'; act.classList.toggle('on', on); }
   }
