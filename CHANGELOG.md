@@ -3,6 +3,12 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.5] - 2026-11-18
+
+### Changed
+
+- 品牌字标采用「极光微光」配色：SnoAkari 为雪白到极光青的渐变，Akari 的 i 上是一枚发光的青色光点
+
 ## [2.2.4] - 2026-11-18
 
 ### Changed
