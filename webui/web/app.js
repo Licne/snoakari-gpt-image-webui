@@ -457,11 +457,16 @@ function card(im){
 function bindCard(){
   document.querySelectorAll('img[data-full]').forEach(img=>{
     if (maskOn) img.classList.add('masked');
-    img.onclick = () => {
-      if (maskOn){ img.classList.toggle('masked'); return; }
-      $('lbImg').src = img.dataset.full; $('lb').style.display='flex';
-    };
-    img.ondblclick = () => { $('lbImg').src = img.dataset.full; $('lb').style.display='flex'; };
+    if (img.classList.contains('mgThumb')){
+      img.onclick = () => { if (maskOn) img.classList.toggle('masked'); };
+      img.ondblclick = () => { $('lbImg').src = img.dataset.full; $('lb').style.display='flex'; };
+    } else {
+      img.onclick = () => {
+        if (maskOn){ img.classList.toggle('masked'); return; }
+        $('lbImg').src = img.dataset.full; $('lb').style.display='flex';
+      };
+      img.ondblclick = () => { $('lbImg').src = img.dataset.full; $('lb').style.display='flex'; };
+    }
     const dims = img.parentElement.querySelector('.dims');
     if (dims){
       const set = () => { if (img.naturalWidth) dims.textContent = img.naturalWidth + '×' + img.naturalHeight; };
@@ -720,22 +725,20 @@ async function mgRenderMain(s){
         <button onclick="mgAddFromHistory('${c.id}')">从历史添加</button>
       </div>
     </div>
-    <div class="grid mgGrid" id="mgGrid">
-      ${imgs.length ? imgs.map(im => mgCard(im, c.id)).join('')
+    <div class="mgList" id="mgGrid">
+      ${imgs.length ? imgs.map(im => `
+        <div class="mgRow" data-name="${im.name}">
+          <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
+          <span class="mgRowName">${im.name}</span>
+          <span class="mgRowInfo"><span class="dims">…</span>${im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : ''}</span>
+          <span class="mgRowOps">
+            <a href="${im.url}" download="${im.name}">下载</a>
+            <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${c.id}','${im.name}')">移出</a>
+          </span>
+        </div>`).join('')
         : '<div class="empty">收藏夹是空的：用「导入图片」或「从历史添加」加入素材</div>'}
     </div>`;
   bindCard();
-}
-
-function mgCard(im, cid){
-  const kb = im.size ? (im.size/1024).toFixed(0) + ' KB' : '';
-  return `<div class="card" data-name="${im.name}">
-    <img src="${im.url}" data-full="${im.url}" loading="lazy">
-    <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb ? ' · ' + kb : ''}</span></div>
-    <div class="ops">
-      <a href="${im.url}" download="${im.name}">下载</a>
-      <a href="javascript:void(0)" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
-    </div></div>`;
 }
 
 function mgOpen(cid){ mgOpenId = cid; mgRender(); }
@@ -828,10 +831,10 @@ async function mgAddFromHistory(cid){
   const inCol = await (await fetch('/api/history?cid=' + encodeURIComponent(cid))).json();
   const inSet = new Set((inCol.error ? [] : inCol).map(x => x.name));
   $('mgPickerGrid').innerHTML = imgs.length ? imgs.map(im => `
-    <div class="card${inSet.has(im.name) ? ' fav' : ''}" data-name="${im.name}">
-      <img src="${im.url}" data-full="${im.url}" loading="lazy">
-      <div class="meta"><span>${im.name}</span></div>
-      <div class="ops"><a href="javascript:void(0)" onclick="mgPick('${cid}','${im.name}',this)">${inSet.has(im.name) ? '✓ 已加入' : '加入'}</a></div>
+    <div class="mgRow${inSet.has(im.name) ? ' fav' : ''}" data-name="${im.name}">
+      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
+      <span class="mgRowName">${im.name}</span>
+      <a href="javascript:void(0)" class="mgPickBtn" onclick="mgPick('${cid}','${im.name}',this)">${inSet.has(im.name) ? '✓ 已加入' : '加入'}</a>
     </div>`).join('') : '<div class="empty">outputs/ 里还没有图片</div>';
   $('mgPickerTitle').textContent = '从历史添加到「' + (col.name || '') + '」';
   bindCard();
@@ -841,10 +844,16 @@ async function mgPick(cid, name, a){
   const j = await post('/api/collections/item', { id: cid, name, add: true });
   if (j.error) return alert('加入失败：' + j.error);
   a.textContent = '✓ 已加入';
-  a.closest('.card').classList.add('fav');
+  a.classList.add('in');
+  a.closest('.mgRow').classList.add('fav');
   refreshHistColl();
 }
 function mgClosePicker(){
   $('mgPickerModal').style.display = 'none';
   mgRender();
 }
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  if ($('lb').style.display === 'flex') { $('lb').style.display = 'none'; return; }
+  if ($('mgPickerModal').style.display === 'flex') mgClosePicker();
+});

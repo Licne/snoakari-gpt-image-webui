@@ -3,6 +3,18 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.1.4] - 2026-11-18
+
+### Changed
+
+- 作品管理右栏图片改为紧凑列表（小缩略图 + 文件名 + 尺寸/大小 + 下载/移出），双击缩略图放大预览
+- 「从历史添加」弹窗同步改为列表样式
+
+### Fixed
+
+- 从历史添加弹窗无法正常关闭：补上 ✕ 按钮、点击遮罩关闭、Esc 关闭三种方式
+- 修复预览灯箱层级低于弹窗导致在弹窗内双击图片后界面被黑色图层卡住的问题（灯箱 z-index 50→80）
+
 ## [2.1.3] - 2026-11-18
 
 ### Changed
@@ -107,6 +119,7 @@
 - 模型系列参数适配（gpt-image 系全参数；nano-banana/gemini/grok 系仅基础参数）
 - 收藏 / 重命名 / 引用 / 本地查看 / 中止请求 / 隐私遮罩 / 参数本地记忆
 
+[2.1.4]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.3...v2.1.4
 [2.1.3]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/Licne/snoakari-gpt-image-webui/compare/v2.1.0...v2.1.1
