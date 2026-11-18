@@ -127,7 +127,10 @@
     <div class="grid" id="history"><div class="empty">加载中……</div></div>
   </div>
   <div id="mgView" style="display:none">
-    <div class="mgTop"><a class="mgBack" href="javascript:void(0)" onclick="showView('ws')">← 返回工作区</a></div>
+    <div class="mgTop">
+      <a class="mgBack" href="javascript:void(0)" onclick="showView('ws')">← 返回工作区</a>
+      <button id="maskToggleMg" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：与工作区联动">遮罩：关</button>
+    </div>
     <div class="mgHead">
       <div>
         <h2 style="margin:0">作品管理</h2>

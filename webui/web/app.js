@@ -154,15 +154,16 @@ function lbShow(u){ $('lbImg').src = u; $('lb').style.display='flex'; }
 /* ---------- 隐私遮罩 ---------- */
 let maskOn = localStorage.getItem('gptImageMask') === '1';
 function syncMaskBtn(){
-  const b = $('maskToggle');
-  b.textContent = '遮罩：' + (maskOn ? '开' : '关');
-  b.classList.toggle('on', maskOn);
+  [$('maskToggle'), $('maskToggleMg')].filter(Boolean).forEach(b => {
+    b.textContent = '遮罩：' + (maskOn ? '开' : '关');
+    b.classList.toggle('on', maskOn);
+  });
 }
 function toggleMask(){
   maskOn = !maskOn;
   localStorage.setItem('gptImageMask', maskOn ? '1' : '0');
   document.body.classList.toggle('masked', maskOn);
-  document.querySelectorAll('#results img[data-full], #history img[data-full]')
+  document.querySelectorAll('img[data-full]')
     .forEach(i => i.classList.toggle('masked', maskOn));
   syncMaskBtn();
 }
@@ -454,7 +455,7 @@ function card(im){
     <a href="javascript:void(0)" onclick="revealImage('${im.name||''}')">本地查看</a></div></div>`;
 }
 function bindCard(){
-  document.querySelectorAll('#results img[data-full], #history img[data-full]').forEach(img=>{
+  document.querySelectorAll('img[data-full]').forEach(img=>{
     if (maskOn) img.classList.add('masked');
     img.onclick = () => {
       if (maskOn){ img.classList.toggle('masked'); return; }

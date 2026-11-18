@@ -132,7 +132,7 @@ body.masked .card img { cursor:pointer; }
 
 /* ---------- 作品管理 ---------- */
 body.mgmode aside { display:none; }
-.mgTop { margin-bottom:12px; }
+.mgTop { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
 .mgTop .mgBack { font-size:14px; color:var(--acc); text-decoration:none; }
 .mgTop .mgBack:hover { text-decoration:underline; }
 .histColl { float:right; font-size:12px; height:28px; padding:0 8px; border-radius:999px; margin-left:10px;
