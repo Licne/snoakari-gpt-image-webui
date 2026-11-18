@@ -4,7 +4,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
-专为**生图的快速与便捷**而设计：浏览器里调用 OpenAI 兼容协议（`/v1/images/*`）的图像服务——中转站、各类聚合网关均可接入，文生图、改图、多图融合。零依赖纯 Python 标准库，无需 pip 安装，双击即用；密钥只存本机，不经第三方服务器。
+如果你也是**为了省钱在各个中转站之间反复横跳的开发者**——这家跑路了、那家限速了、模型列表还都不一样——那这个工具就是为你做的。
+
+一个本地 WebUI 搞定全部中转站：OpenAI 兼容协议（`/v1/images/*`）的服务都能接，文生图、改图、多图融合；分组管理多家小站一键切换，换站不用改代码。零依赖纯 Python 标准库，双击即用；密钥只存本机，不经第三方服务器。
 
 ## 快速开始
 
