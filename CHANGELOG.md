@@ -3,6 +3,16 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.8] - 2026-11-19
+
+### Changed
+
+- 品牌横幅更新：README 与页头换用新版雪夜横幅（窄版入页头，色彩保持原样，上下虚化融合）
+
+### Added
+
+- 页头字标 Akari 的 "i" 上金色星带呼吸光晕动画
+
 ## [2.2.7] - 2026-11-19
 
 ### Added
