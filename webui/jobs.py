@@ -53,14 +53,17 @@ def _bg_finish(job_id, status, images=None, elapsed=None, error=""):
             e.pop("payload", None)  # 只有失败任务保留参数供重试
 
 
-def _bg_phase(job_id, phase):
-    """更新进行中任务的阶段（如 downloading：URL 结果下载中），不改状态本身"""
+def _bg_phase(job_id, phase, **extra):
+    """更新进行中任务的阶段（如 downloading：URL 结果下载中），不改状态本身。
+    extra 中的键（如 dl_bytes/dl_total）写入任务条目供前端展示。"""
     if not job_id:
         return
     with _JOBS_LOCK:
         e = _BG_JOBS.get(job_id)
         if e is not None:
             e["phase"] = phase
+            for k, v in extra.items():
+                e[k] = v
 
 _JOBS_LOCK = threading.Lock()
 
@@ -83,14 +86,15 @@ def _register_resp(job_id, resp):
 
 def _kill_response(resp):
     """尽力掐断上游连接：先 shutdown 唤醒阻塞中的读线程，再 close"""
-    try:
-        sock = resp.fp.raw._sock
+    for attr_path in ("fp.raw._sock", "fp.raw._sock.sock", "fp._sock"):
         try:
+            sock = resp
+            for a in attr_path.split("."):
+                sock = getattr(sock, a)
             sock.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-    except Exception:
-        pass
+            break
+        except Exception:
+            continue
     try:
         resp.close()
     except Exception:
@@ -137,12 +141,13 @@ def _job_cancelled(job_id):
         return e is not None and e["cancelled"]
 
 
-def fetch_bytes(url, job_id=""):
+def fetch_bytes(url, job_id="", progress_cb=None):
+    """分块下载；job_id 支持中止，progress_cb(已收字节, 总字节|None) 支持进度上报"""
     if _job_cancelled(job_id):
         raise ValueError("已中止")
     req = urllib.request.Request(url, headers={"User-Agent": f"gpt-image-webui/{APP_VER}"})
     r = _opener.open(req, timeout=REQUEST_TIMEOUT)
-    # 注册下载 socket，让中止能掐断阻塞中的下载
+    # 注册响应对象，中止时直接 close 强断阻塞中的读
     if job_id:
         with _JOBS_LOCK:
             e = _ACTIVE_JOBS.get(job_id)
@@ -152,7 +157,32 @@ def fetch_bytes(url, job_id=""):
             if e is not None:
                 e["resp"] = r
     try:
-        data = r.read()
+        total = None
+        try:
+            cl = r.headers.get("Content-Length")
+            if cl and cl.isdigit():
+                total = int(cl)
+        except Exception:
+            pass
+        buf = bytearray()
+        while True:
+            if job_id and _job_cancelled(job_id):
+                raise ValueError("已中止")
+            try:
+                chunk = r.read(65536)
+            except Exception:
+                # 中止掐断连接会引发各种底层异常（ConnectionReset/AttributeError 等），统一按中止处理
+                if job_id and _job_cancelled(job_id):
+                    raise ValueError("已中止") from None
+                raise
+            if not chunk:
+                break
+            buf += chunk
+            if progress_cb:
+                try:
+                    progress_cb(len(buf), total)
+                except Exception:
+                    pass
     finally:
         if job_id:
             with _JOBS_LOCK:
@@ -165,6 +195,6 @@ def fetch_bytes(url, job_id=""):
             pass
     if _job_cancelled(job_id):
         raise ValueError("已中止")
-    return data
+    return bytes(buf)
 
 

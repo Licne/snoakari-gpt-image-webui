@@ -323,7 +323,12 @@ async function refreshJobs(force){
     $('jobsList').innerHTML = jobs.map(t => {
       const stMap = {running:['run','进行中'], done:['ok','已完成'], failed:['fail','失败'], cancelled:['can','已中止']};
       const isDl = t.status === 'running' && t.phase === 'downloading';
-      const [cls, label] = isDl ? ['dl', '下载中…'] : (stMap[t.status] || ['can', t.status]);
+      let dlTxt = '下载中…';
+      if (isDl && t.dl_bytes != null){
+        const mb = t.dl_bytes/1048576;
+        dlTxt = t.dl_total ? `下载中 ${mb.toFixed(1)}/${(t.dl_total/1048576).toFixed(1)} MB` : `下载中 已收 ${mb.toFixed(1)} MB`;
+      }
+      const [cls, label] = isDl ? ['dl', dlTxt] : (stMap[t.status] || ['can', t.status]);
       if (t.status === 'running') running++;
       const tstr = t.status === 'running'
         ? '已等 ' + Math.round((Date.now()/1000 - t.t0)) + ' 秒'
@@ -803,7 +808,8 @@ async function mgStartPicker(cid){
 }
 
 async function mgRenderPicker(s, c){
-  const all = await (await fetch('/api/history')).json();
+  const q = mgPickFav ? '?fav=1' : '';
+  const all = await (await fetch('/api/history' + q)).json();
   const inCol = await (await fetch('/api/history?cid=' + encodeURIComponent(c.id))).json();
   const inSet = new Set((inCol.error ? [] : inCol).map(x => x.name));
   const imgs = (all.error ? [] : all).filter(im => !inSet.has(im.name));
@@ -812,12 +818,18 @@ async function mgRenderPicker(s, c){
       <span class="mgName">从历史添加到「${c.name}」· 已选 ${mgSel.size} 张</span>
       <div class="mgBtns">
         ${mgLayBtnHtml()}
+        <button id="mgPickFavBtn" onclick="mgTogglePickFav()" title="只显示星标收藏的图片">${mgPickFav ? '★ 只看收藏' : '☆ 只看收藏'}</button>
         <button onclick="mgPickCancel()">返回</button>
         <button id="mgPickAdd" onclick="mgPickAdd('${c.id}')">添加所选（${mgSel.size}）</button>
       </div>
     </div>
     ${imgs.length ? mgRenderImgs(imgs, c.id, true) : '<div class="empty">没有可添加的图片（其余已在合集中）</div>'}`;
   bindCard();
+}
+let mgPickFav = false;
+function mgTogglePickFav(){
+  mgPickFav = !mgPickFav;
+  mgRender();
 }
 
 function mgToggleSel(name){
@@ -837,7 +849,7 @@ function mgToggleSel(name){
 }
 
 async function mgPickAdd(cid){
-  if (!mgSel.size) return alert('先勾选要添加的图片');
+  if (!mgSel.size){ mgPickCancel(); return; }  // 未选图时与「返回」同逻辑
   let ok = 0;
   const fail = [];
   for (const name of mgSel){

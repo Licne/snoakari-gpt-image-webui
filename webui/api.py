@@ -492,8 +492,17 @@ class ApiMixin(BaseHTTPRequestHandler):
                 with _JOBS_LOCK:
                     e = _BG_JOBS.get(jid)
                     if e is not None and e["status"] == "running":
-                        return self._send(200, {"error": "进行中的任务请先中止再移除"})
-                    _BG_JOBS.pop(jid, None)
+                        # running 也允许删除：先标记中止（掐断下载/生成），再从面板移除；
+                        # 后台线程结束时会发现条目已不存在，自然收尾
+                        act = _ACTIVE_JOBS.get(jid)
+                        if act is not None:
+                            act["cancelled"] = True
+                            resp = act.get("resp")
+                        else:
+                            resp = None
+                        _BG_JOBS.pop(jid, None)
+                        if resp is not None:
+                            _kill_response(resp)
                 self._send(200, {"ok": True})
             except Exception as ex:
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})

@@ -91,11 +91,20 @@ def save_images(resp_json, fmt, prefix="", job_id=""):
             blob = base64.b64decode(item["b64_json"])
         elif item.get("url"):
             log(f"第 {idx} 张为 URL 结果，开始下载（可能较慢，耐心等待）")
-            _bg_phase(job_id, "downloading")  # 面板显示「下载中…」，落库后清除
+            _bg_phase(job_id, "downloading", dl_bytes=0, dl_total=None)
+            # 进度上报节流：每收到约 256KB 或 1 秒更新一次任务面板
+            _last = {"t": time.time()}
+            def _cb(got, total):
+                now = time.time()
+                if now - _last["t"] >= 1:
+                    _last["t"] = now
+                    _bg_phase(job_id, "downloading", dl_bytes=got, dl_total=total)
             try:
                 t_dl = time.time()
-                blob = fetch_bytes(item["url"], job_id)
+                blob = fetch_bytes(item["url"], job_id, progress_cb=_cb)
                 log(f"第 {idx} 张下载完成，耗时 {round(time.time() - t_dl, 1)}s")
+            except ValueError:
+                raise  # 「已中止」原样上抛，任务面板按已中止收尾
             except Exception as e:
                 raise RuntimeError(
                     f"第 {idx} 张结果图下载失败：{e}\n"
@@ -106,7 +115,7 @@ def save_images(resp_json, fmt, prefix="", job_id=""):
         ext = sniff_ext(blob, ext_hint)
         name = (f"{prefix}_" if prefix else "") + f"{stamp}-{uuid.uuid4().hex[:6]}" + (f"-{idx}" if len(items) > 1 else "") + ext
         results.append({"name": name, "bytes": blob})
-    _bg_phase(job_id, "")
+    _bg_phase(job_id, "", dl_bytes=None, dl_total=None)
     if not results:
         raise RuntimeError("响应中没有图片数据：" + json.dumps(resp_json, ensure_ascii=False)[:1500])
     return results
