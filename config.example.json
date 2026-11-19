@@ -1,6 +1,12 @@
 {
-  "api_key": "sk-你的密钥",
-  "base_url": "https://你的中转站地址",
-  "model": "gpt-image-1",
-  "proxy": ""
+  "active_group": "我的中转站",
+  "groups": [
+    {
+      "name": "我的中转站",
+      "base_url": "https://你的中转站地址",
+      "api_key": "sk-你的密钥",
+      "models": [],
+      "proxy": ""
+    }
+  ]
 }

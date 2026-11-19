@@ -2,7 +2,7 @@
 
 # SnoAkari gpt-image WebUI
 
-[![Version](https://img.shields.io/badge/version-2.2.11-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.12-green)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
@@ -20,13 +20,18 @@ python app.py
 
 Windows 双击 `启动WebUI.bat` 即可，浏览器自动打开 http://127.0.0.1:8787。
 
-配置：复制 `config.example.json` 为 `data/config.json`，填入密钥：
+配置：复制 `config.example.json` 为 `data/config.json`，填入密钥（`groups` 支持多个中转站，页面上方一键切换）：
 
 ```json
-{ "api_key": "sk-你的密钥", "base_url": "https://你的中转站地址", "model": "gpt-image-1", "proxy": "" }
+{
+  "active_group": "我的中转站",
+  "groups": [
+    { "name": "我的中转站", "base_url": "https://你的中转站地址", "api_key": "sk-你的密钥", "models": [], "proxy": "" }
+  ]
+}
 ```
 
-也可在页面右上角 ⚙ 里改配置，自动获取模型列表。
+`models` 留空则使用内置模型列表；也可在页面右上角 ⚙ 里改配置，自动获取模型列表。
 
 `data/` 目录为用户数据，含全部本地数据（密钥/收藏/生成图），操作文件时注意不要泄露密钥。
 

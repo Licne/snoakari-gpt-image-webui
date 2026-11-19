@@ -3,6 +3,12 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.12] - 2026-11-19
+
+### Fixed
+
+- README 与 config.example.json 更新为 v2 分组多中转站配置格式（旧单站格式仍向下兼容）
+
 ## [2.2.11] - 2026-11-19
 
 ### Changed
