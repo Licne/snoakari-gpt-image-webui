@@ -3,6 +3,13 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.10] - 2026-11-19
+
+### Changed
+
+- 页头 Logo 裁去图片自带左侧边距，文字与下方控件左对齐
+- 侧栏描述更新为「本地调用 OpenAI 协议 API 中转站 · 参数图形化配置」
+
 ## [2.2.9] - 2026-11-19
 
 ### Fixed

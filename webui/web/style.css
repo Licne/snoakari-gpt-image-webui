@@ -15,7 +15,7 @@ main { flex:1; overflow-y:auto; padding:18px 24px; }
 .headTop { width:100%; display:flex; align-items:flex-start; justify-content:space-between; gap:8px; }
 .brandWrap { position:relative; display:inline-block; }
 .brandLogo { display:block; width:240px; height:auto; border-radius:8px; margin-bottom:2px; }
-.brandStar { position:absolute; left:56%; top:19%; width:16px; height:16px; margin:-8px 0 0 -8px;
+.brandStar { position:absolute; left:53.9%; top:19%; width:16px; height:16px; margin:-8px 0 0 -8px;
   border-radius:50%; pointer-events:none;
   background:radial-gradient(circle, rgba(255,216,110,.95) 0%, rgba(255,186,80,.40) 45%, transparent 72%);
   animation:starGlow 2.8s ease-in-out infinite; }
