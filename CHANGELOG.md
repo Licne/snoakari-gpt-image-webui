@@ -3,6 +3,12 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.11] - 2026-11-19
+
+### Changed
+
+- 仓库结构整理：banner 等文档静态资源移入 assets/ 目录，README 引用同步更新
+
 ## [2.2.10] - 2026-11-19
 
 ### Changed
