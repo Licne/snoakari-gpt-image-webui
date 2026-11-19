@@ -1,6 +1,8 @@
+<p align="center"><img src="docs_banner.webp" alt="SnoAkari gpt-image WebUI banner" width="800"></p>
+
 # SnoAkari gpt-image WebUI
 
-[![Version](https://img.shields.io/badge/version-2.2.6-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.7-green)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 

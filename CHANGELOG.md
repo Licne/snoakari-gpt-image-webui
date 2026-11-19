@@ -3,6 +3,16 @@
 本项目所有 notable 变更记录于此文件。
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.7] - 2026-11-19
+
+### Added
+
+- 品牌视觉：页头 Logo 与 README 横幅（雪夜微光 · SnoAkari），4K 原图存档于仓库
+
+### Changed
+
+- 页头布局：设置按钮与分组下拉框合并为同一行，高度更紧凑
+
 ## [2.2.6] - 2026-11-18
 
 ### Added

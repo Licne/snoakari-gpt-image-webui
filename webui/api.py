@@ -62,6 +62,13 @@ class ApiMixin(BaseHTTPRequestHandler):
                 return self._send(404, {"error": "not found"})
             with open(path, "rb") as f:
                 self._send(200, f.read(), IMG_MIMES[ext])
+        elif self.path.startswith("/assets/"):
+            from .webindex import ASSETS
+            name = os.path.basename(urllib.parse.unquote(self.path[len("/assets/"):]))
+            if name in ASSETS:
+                mime = "image/webp" if name.endswith(".webp") else "image/png"
+                return self._send(200, ASSETS[name], mime)
+            return self._send(404, {"error": "not found"})
         elif self.path == "/api/config":
             cfg = self.server.app_config
             self._send(200, {"model": cfg["model"], "models": cfg.get("models") or MODELS,

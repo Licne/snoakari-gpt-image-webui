@@ -18,3 +18,13 @@ INDEX_HTML = (_read("index.html")
               .replace("<!--STYLE-->", "<style>\n" + _read("style.css") + "\n</style>")
               .replace("<!--SCRIPT-->", "<script>\n" + _read("app.js") + "\n</script>")
               .replace("__APP_VER__", APP_VER))
+
+
+# 静态图片资源（logo 等），启动时一次性读入内存
+_ASSET_MIMES = {"logo.png": "image/png"}
+ASSETS = {}
+for _n in ("logo.png",):
+    _p = os.path.join(WEB_DIR, "assets", _n)
+    if os.path.isfile(_p):
+        with open(_p, "rb") as _f:
+            ASSETS[_n] = _f.read()

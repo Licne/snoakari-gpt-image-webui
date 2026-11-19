@@ -12,12 +12,14 @@
   <div class="head">
     <div class="headTop">
       <div>
-        <h1>SnoAkari <span>gpt-image WebUI</span></h1>
+        <img class="brandLogo" src="/assets/logo.png" alt="SnoAkari gpt-image WebUI">
         <div class="sub">本地调用 NewAPI 中转站 · 参数图形化配置</div>
       </div>
+    </div>
+    <div class="headBar">
+      <select id="groupSel" title="切换中转站分组" onchange="switchGroupHeader()"></select>
       <button class="gear" onclick="openSettings()" title="设置" aria-label="设置">⚙</button>
     </div>
-    <select id="groupSel" title="切换中转站分组" onchange="switchGroupHeader()"></select>
   </div>
 
   <div class="tabs">
