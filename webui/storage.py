@@ -4,13 +4,18 @@
 import json
 import os
 import shutil
+import threading
 import time
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 OUTPUT_DIR = os.path.join(DATA_DIR, "outputs")
+TRASH_DIR = os.path.join(DATA_DIR, "trash")
 CONFIG_PATH = os.path.join(DATA_DIR, "config.json")
 FAV_PATH = os.path.join(DATA_DIR, "favorites.json")
+META_PATH = os.path.join(DATA_DIR, "meta.json")
+TRASH_META_PATH = os.path.join(DATA_DIR, "trash_meta.json")
+_META_LOCK = threading.RLock()
 
 
 def migrate_v1():
@@ -76,21 +81,88 @@ REQUEST_TIMEOUT = 600
 
 IMG_EXTS = {"png": ".png", "jpeg": ".jpg", "jpg": ".jpg", "webp": ".webp"}
 IMG_MIMES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
-def load_favs():
-    """读取收藏文件名集合"""
-    try:
-        with open(FAV_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        return set(data) if isinstance(data, list) else set()
-    except Exception:
-        return set()
 
-def save_favs(favs):
-    try:
-        with open(FAV_PATH, "w", encoding="utf-8", newline="\n") as f:
-            json.dump(sorted(favs), f, ensure_ascii=False, indent=1)
-    except Exception as e:
-        log(f"收藏保存失败：{e}")
+
+def _read_json_dict(path):
+    if os.path.exists(path):
+        try:
+            with open(path, encoding="utf-8") as f:
+                d = json.load(f)
+            if isinstance(d, dict):
+                return d
+        except Exception:
+            pass
+    return {}
+
+
+def _write_json_atomic(path, d):
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, path)
+
+
+def load_meta():
+    """读取本地生成参数元数据（仅存于 data/meta.json，绝不写入图片文件）"""
+    with _META_LOCK:
+        return _read_json_dict(META_PATH)
+
+
+def save_meta_entries(entries):
+    if not entries:
+        return
+    with _META_LOCK:
+        d = _read_json_dict(META_PATH)
+        d.update(entries)
+        _write_json_atomic(META_PATH, d)
+
+
+def rename_meta(old, new):
+    with _META_LOCK:
+        d = _read_json_dict(META_PATH)
+        if old in d:
+            d[new] = d.pop(old)
+            _write_json_atomic(META_PATH, d)
+
+
+def delete_meta(names):
+    if not names:
+        return
+    with _META_LOCK:
+        d = _read_json_dict(META_PATH)
+        changed = False
+        for n in names:
+            if n in d:
+                d.pop(n, None)
+                changed = True
+        if changed:
+            _write_json_atomic(META_PATH, d)
+
+
+def load_trash_meta():
+    with _META_LOCK:
+        return _read_json_dict(TRASH_META_PATH)
+
+
+def set_trash_meta(name, info):
+    with _META_LOCK:
+        d = _read_json_dict(TRASH_META_PATH)
+        if info is None:
+            if name in d:
+                d.pop(name, None)
+                _write_json_atomic(TRASH_META_PATH, d)
+        else:
+            d[name] = info
+            _write_json_atomic(TRASH_META_PATH, d)
+
+
+def clear_trash_meta():
+    with _META_LOCK:
+        if os.path.exists(TRASH_META_PATH):
+            _write_json_atomic(TRASH_META_PATH, {})
+
+
 def normalize_groups(cfg):
     """确保分组列表合法；旧配置自动迁移为一个默认分组"""
     groups = cfg.get("groups") if isinstance(cfg.get("groups"), list) else []
@@ -105,6 +177,7 @@ def normalize_groups(cfg):
             "api_key": (g.get("api_key") or "").strip(),
             "models": [str(m).strip() for m in (g.get("models") or []) if str(m).strip()],
             "proxy": (g.get("proxy") or "").strip(),
+            "last_model": (g.get("last_model") or "").strip(),
         })
     if not out:
         out.append({
@@ -113,28 +186,17 @@ def normalize_groups(cfg):
             "api_key": (cfg.get("api_key") or "").strip(),
             "models": list(MODELS),
             "proxy": (cfg.get("proxy") or "").strip(),
+            "last_model": (cfg.get("model") or "").strip(),
         })
     return out
 
 
 def _read_disk_config():
-    if os.path.exists(CONFIG_PATH):
-        try:
-            with open(CONFIG_PATH, encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                return d
-        except Exception:
-            pass
-    return {}
+    return _read_json_dict(CONFIG_PATH)
 
 
 def _write_disk_config(d):
-    os.makedirs(DATA_DIR, exist_ok=True)
-    tmp = CONFIG_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, CONFIG_PATH)
+    _write_json_atomic(CONFIG_PATH, d)
 
 
 def load_config():
@@ -147,7 +209,7 @@ def load_config():
     api_key = os.environ.get("GPT_IMAGE_API_KEY", "").strip() or (cfg.get("api_key") or "").strip() or g["api_key"]
     base_url = (cfg.get("base_url") or g["base_url"] or "https://your-relay.example.com").strip().rstrip("/")
     models = g["models"] or list(MODELS)
-    model = cfg.get("model") or ""
+    model = g.get("last_model") or cfg.get("model") or ""
     if model not in models:
         model = models[0] if models else "gpt-image-2"
     return {
@@ -159,24 +221,6 @@ def load_config():
         "groups": groups,
         "models": models,
     }
-
-
-def save_config_file(base_url, model, api_key=None, proxy=None):
-    """把设置写回 config.json（保留未知字段）"""
-    cfg = {}
-    if os.path.exists(CONFIG_PATH):
-        with open(CONFIG_PATH, encoding="utf-8") as f:
-            cfg = json.load(f)
-    cfg["base_url"] = base_url.rstrip("/")
-    cfg["model"] = model
-    if api_key and api_key.strip():
-        cfg["api_key"] = api_key.strip()
-    if proxy is not None:
-        cfg["proxy"] = proxy.strip()
-    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
-
-
 
 
 def mask_key(key):

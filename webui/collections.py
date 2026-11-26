@@ -202,6 +202,36 @@ def rename_file(old, new):
         return changed
 
 
+def remove_file(name):
+    """从所有收藏夹移除某图片（移入回收站时调用），返回原所属收藏夹 id 列表"""
+    with _LOCK:
+        d = load_collections()
+        removed_from = []
+        for c in d["collections"]:
+            if name in c["items"]:
+                c["items"] = [x for x in c["items"] if x != name]
+                removed_from.append(c["id"])
+        if removed_from:
+            _save(d)
+        return removed_from
+
+
+def restore_file(name, cids):
+    """从回收站还原图片时，恢复其原先所在的收藏夹关联"""
+    if not cids:
+        return 0
+    with _LOCK:
+        d = load_collections()
+        restored = 0
+        for c in d["collections"]:
+            if c["id"] in cids and name not in c["items"]:
+                c["items"].append(name)
+                restored += 1
+        if restored:
+            _save(d)
+        return restored
+
+
 # ---------- 哈希去重 ----------
 
 def _sha256_bytes(data):

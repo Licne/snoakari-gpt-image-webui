@@ -171,12 +171,15 @@
   <button class="lbNav lbPrev" id="lbPrev" onclick="lbStep(-1)" title="上一张 (←)">‹</button>
   <img id="lbImg">
   <button class="lbNav lbNext" id="lbNext" onclick="lbStep(1)" title="下一张 (→)">›</button>
+  <div class="lbPrompt" id="lbPrompt" style="display:none"></div>
   <div class="lbBar" id="lbBar" style="display:none">
     <span class="lbInfo" id="lbInfo"></span>
     <div class="lbActs">
       <button id="lbFavBtn" onclick="lbFav()">☆ 收藏</button>
+      <button id="lbReuseBtn" style="display:none" onclick="lbReuse()">复用参数</button>
       <button onclick="lbQuote()">引用改图</button>
       <button onclick="lbExport()">导出</button>
+      <button class="lbDel" onclick="lbTrash()">移入回收站</button>
     </div>
   </div>
 </div>
@@ -186,7 +189,12 @@
     <h3>✏ 绘制蒙版</h3>
     <div class="sub">在原图上用红色笔刷涂抹“要修改的区域”，保存后涂抹处即为 AI 重绘区域，其余保持原样</div>
     <div class="mcanvasWrap"><canvas id="maskCv"></canvas></div>
-    <div class="slider" style="margin-top:12px">
+    <div class="maskTools">
+      <button type="button" id="mToolBrush" class="on" onclick="setMaskTool('brush')">🖌 画笔</button>
+      <button type="button" id="mToolErase" onclick="setMaskTool('eraser')">🧹 橡皮擦</button>
+      <button type="button" id="mUndoBtn" onclick="undoMaskCanvas()" disabled>↶ 撤销 (Ctrl+Z)</button>
+    </div>
+    <div class="slider" style="margin-top:10px">
       <small>笔刷</small>
       <input type="range" id="brushSize" min="8" max="120" value="36">
       <span id="brushVal">36</span>

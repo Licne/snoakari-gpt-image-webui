@@ -12,7 +12,7 @@ import uuid
 from .jobs import (_ACTIVE_JOBS, _JOBS_LOCK, _bg_finish, _bg_phase, _register_job,
                    _register_resp, fetch_bytes, read_response)
 from .network import api_request
-from .storage import FORMATS, IMG_EXTS, OUTPUT_DIR, SIZE_PRESETS, log
+from .storage import FORMATS, IMG_EXTS, OUTPUT_DIR, SIZE_PRESETS, log, save_meta_entries
 
 def build_multipart(fields, files):
     """fields: dict; files: [(fieldname, filename, mime, bytes), ...]"""
@@ -229,12 +229,28 @@ def do_generate(cfg, payload):
     images = save_images(resp_json, fmt, prefix=name_prefix, job_id=job_id)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     out = []
+    meta_entries = {}
+    base_meta = {
+        "prompt": prompt,
+        "mode": mode,
+        "model": model,
+        "size": size,
+        "n": n,
+        "quality": extra.get("quality", "auto"),
+        "background": extra.get("background", "auto"),
+        "output_format": fmt,
+        "moderation": extra.get("moderation", "auto"),
+        "group": cfg.get("group") or "",
+        "ts": int(time.time()),
+    }
     for img in images:
         path = os.path.join(OUTPUT_DIR, img["name"])
         with open(path, "wb") as f:
             f.write(img["bytes"])
+        meta_entries[img["name"]] = dict(base_meta)
         out.append({"name": img["name"], "url": f"/outputs/{img['name']}",
-                    "size": len(img["bytes"])})
+                    "size": len(img["bytes"]), "meta": base_meta})
+    save_meta_entries(meta_entries)
     elapsed = round(time.time() - t0, 1)
     usage = resp_json.get("usage")
     log(f"完成 | 耗时 {elapsed}s | 模型={model} | 生成 {len(out)} 张"

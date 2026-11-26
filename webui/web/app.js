@@ -207,13 +207,15 @@ function renderMask(){
   $('thumbMask').innerHTML = maskFile ? `<div class="thumb"><img src="${maskFile.url}" onclick="lbShow(this.src)"><b onclick="clearMask()">×</b></div>` : '';
 }
 let lbList = [], lbIdx = -1;
-function lbClose(){ $('lb').style.display = 'none'; lbList = []; lbIdx = -1; }
+const _metaMap = new Map();
+function lbClose(){ $('lb').style.display = 'none'; $('lbPrompt').style.display = 'none'; lbList = []; lbIdx = -1; }
 function lbShow(u){
   lbList = []; lbIdx = -1;
   $('lbImg').src = u;
   $('lbPrev').style.display = 'none';
   $('lbNext').style.display = 'none';
   $('lbBar').style.display = 'none';
+  $('lbPrompt').style.display = 'none';
   $('lb').style.display = 'flex';
 }
 function lbOpenEl(imgEl){
@@ -226,7 +228,8 @@ function lbOpenEl(imgEl){
       url: el.dataset.full,
       name: cardEl ? (cardEl.dataset.name || '') : '',
       fav: cardEl ? cardEl.classList.contains('fav') : false,
-      dims: dimsEl ? dimsEl.textContent : ''
+      dims: dimsEl ? dimsEl.textContent : '',
+      isTrash: (el.dataset.full || '').startsWith('/trash/')
     };
   });
   lbIdx = Math.max(0, imgs.indexOf(imgEl));
@@ -240,7 +243,7 @@ function lbRenderCur(){
   const multi = lbList.length > 1;
   $('lbPrev').style.display = multi ? 'flex' : 'none';
   $('lbNext').style.display = multi ? 'flex' : 'none';
-  if (cur.name){
+  if (cur.name && !cur.isTrash){
     $('lbBar').style.display = 'flex';
     const cardEl = document.querySelector('.card[data-name="' + CSS.escape(cur.name) + '"]');
     if (cardEl) cur.fav = cardEl.classList.contains('fav');
@@ -249,8 +252,21 @@ function lbRenderCur(){
     const fb = $('lbFavBtn');
     fb.textContent = cur.fav ? '★ 已收藏' : '☆ 收藏';
     fb.classList.toggle('on', cur.fav);
+    const meta = _metaMap.get(cur.name);
+    const pEl = $('lbPrompt'), rBtn = $('lbReuseBtn');
+    if (meta && meta.prompt){
+      const tags = [meta.mode === 'edit' ? '改图' : '文生图', meta.model, meta.size,
+        meta.quality && meta.quality !== 'auto' ? '画质 ' + meta.quality : ''].filter(Boolean).join(' · ');
+      pEl.innerHTML = `<span class="lbMetaTag">${escHtml(tags)}</span>${escHtml(meta.prompt)}`;
+      pEl.style.display = '';
+      if (rBtn) rBtn.style.display = '';
+    } else {
+      pEl.style.display = 'none';
+      if (rBtn) rBtn.style.display = 'none';
+    }
   } else {
     $('lbBar').style.display = 'none';
+    $('lbPrompt').style.display = 'none';
   }
 }
 function lbStep(d){
@@ -261,6 +277,51 @@ function lbStep(d){
 function lbFav(){ const cur = lbList[lbIdx]; if (cur && cur.name) toggleFav(cur.name); }
 function lbQuote(){ const cur = lbList[lbIdx]; if (cur && cur.name){ addAsInput(cur.url, cur.name); lbClose(); } }
 function lbExport(){ const cur = lbList[lbIdx]; if (cur && cur.name) exportImage(cur.name); }
+function lbReuse(){
+  const cur = lbList[lbIdx];
+  const meta = cur && cur.name ? _metaMap.get(cur.name) : null;
+  if (!meta) return;
+  applyMeta(meta);
+  lbClose();
+}
+function lbTrash(){
+  const cur = lbList[lbIdx];
+  if (!cur || !cur.name) return;
+  moveToTrash(cur.name).then(ok => {
+    if (!ok) return;
+    lbList.splice(lbIdx, 1);
+    if (!lbList.length){ lbClose(); return; }
+    lbIdx = Math.min(lbIdx, lbList.length - 1);
+    lbRenderCur();
+  });
+}
+function applyMeta(meta){
+  if (meta.prompt !== undefined){ $('prompt').value = meta.prompt; updatePromptCnt(); }
+  if (meta.model){
+    const opts = [...$('model').options].map(o => o.value);
+    if (opts.includes(meta.model)){ $('model').value = meta.model; onModelChange(); }
+  }
+  if (meta.size){
+    if (meta.size === 'auto'){ $('sizeRatio').value = 'auto'; }
+    else {
+      let matched = false;
+      for (const [r, vals] of Object.entries(window.RATIO_MAP || {})){
+        const i = vals.indexOf(meta.size);
+        if (i >= 0){ $('sizeRatio').value = r; $('sizeTier').value = String(i); matched = true; break; }
+      }
+      if (!matched){ $('sizeRatio').value = 'custom'; $('customSize').value = meta.size; }
+    }
+    onSizeChange();
+  }
+  if (meta.n) $('n').value = String(meta.n);
+  if (meta.quality && !$('quality').disabled) $('quality').value = meta.quality;
+  if (meta.background && !$('background').disabled) $('background').value = meta.background;
+  if (meta.output_format){ $('format').value = meta.output_format; onFormatChange(); }
+  if (meta.moderation) $('moderation').value = meta.moderation;
+  persistParams();
+  if (mgViewVisible()) showView('ws');
+  logMsg('已复用提示词与生成参数');
+}
 
 /* ---------- 隐私遮罩 ---------- */
 let maskOn = localStorage.getItem('gptImageMask') === '1';
@@ -325,6 +386,32 @@ fileMask.onchange = () => {
 
 // ---------------- 蒙版绘制（点击“绘制蒙版”按钮） ----------------
 let mBase = null, mStroke = null, mCtx = null, sCtx = null, mPainting = false;
+let mTool = 'brush', mUndo = [];
+function setMaskTool(t){
+  mTool = t === 'eraser' ? 'eraser' : 'brush';
+  if ($('mToolBrush')) $('mToolBrush').classList.toggle('on', mTool === 'brush');
+  if ($('mToolErase')) $('mToolErase').classList.toggle('on', mTool === 'eraser');
+}
+function syncMaskUndo(){
+  const btn = $('mUndoBtn');
+  if (btn) btn.disabled = mUndo.length === 0;
+}
+function pushMaskUndo(){
+  if (!sCtx || !mStroke) return;
+  try{
+    mUndo.push(sCtx.getImageData(0, 0, mStroke.width, mStroke.height));
+    if (mUndo.length > 20) mUndo.shift();
+    syncMaskUndo();
+  }catch(e){}
+}
+function undoMaskCanvas(){
+  if (!sCtx || !mUndo.length) return;
+  const snap = mUndo.pop();
+  sCtx.globalCompositeOperation = 'source-over';
+  sCtx.putImageData(snap, 0, 0);
+  syncMaskUndo();
+  redrawMask();
+}
 function openMaskEditor(){
   if (!files.length){ logMsg('请先上传至少一张原图，再绘制蒙版', true); return; }
   const img = new Image();
@@ -337,6 +424,9 @@ function openMaskEditor(){
     sCtx = mStroke.getContext('2d');
     sCtx.strokeStyle = '#ff4040'; sCtx.lineCap = 'round'; sCtx.lineJoin = 'round';
     mCtx = cv.getContext('2d');
+    mUndo = [];
+    setMaskTool('brush');
+    syncMaskUndo();
     redrawMask();
     $('maskModal').style.display = 'flex';
   };
@@ -356,8 +446,10 @@ function maskPos(e){
 }
 $('maskCv').addEventListener('pointerdown', e => {
   if (!sCtx) return;
+  pushMaskUndo();
   mPainting = true;
   const p = maskPos(e);
+  sCtx.globalCompositeOperation = mTool === 'eraser' ? 'destination-out' : 'source-over';
   sCtx.lineWidth = +$('brushSize').value;
   sCtx.beginPath(); sCtx.moveTo(p.x, p.y); sCtx.lineTo(p.x + 0.01, p.y); sCtx.stroke();
   redrawMask();
@@ -365,6 +457,7 @@ $('maskCv').addEventListener('pointerdown', e => {
 $('maskCv').addEventListener('pointermove', e => {
   if (!mPainting || !sCtx) return;
   const p = maskPos(e);
+  sCtx.globalCompositeOperation = mTool === 'eraser' ? 'destination-out' : 'source-over';
   sCtx.lineWidth = +$('brushSize').value;
   sCtx.lineTo(p.x, p.y); sCtx.stroke();
   redrawMask();
@@ -373,6 +466,7 @@ window.addEventListener('pointerup', () => mPainting = false);
 $('brushSize').oninput = () => $('brushVal').textContent = $('brushSize').value;
 function clearMaskCanvas(){
   if (!sCtx) return;
+  pushMaskUndo();
   sCtx.clearRect(0, 0, mStroke.width, mStroke.height);
   redrawMask();
 }
@@ -557,6 +651,7 @@ async function generate(){
     if (j.error){ st.className='status err';
       st.textContent = '生成失败：' + j.error + (j.detail ? '\n' + j.detail : ''); return; }
     st.textContent = `完成 · ${j.model} · ${j.size} · 耗时 ${j.elapsed}s` + (j.usage ? ` · 用量 ${JSON.stringify(j.usage)}` : '');
+    (j.images || []).forEach(im => { if (im.name && im.meta) _metaMap.set(im.name, im.meta); });
     $('results').innerHTML = j.images.map(im => card(im)).join('');
     bindCard(); loadHistory();
   }catch(e){
@@ -695,6 +790,7 @@ const _thumbObs = ('IntersectionObserver' in window) ? new IntersectionObserver(
 function _tkey(im){ return (im.name || '') + '|' + (im.size || 0) + '|' + Math.round(im.mtime || 0); }
 
 function card(im, useThumb){
+  if (im.name && im.meta) _metaMap.set(im.name, im.meta);
   const kb = im.size ? (im.size/1024).toFixed(0)+' KB' : '';
   const n = escHtml(im.name||''), nJs = mgEsc(im.name||'');
   const u = escHtml(im.url||''), uJs = mgEsc(im.url||'');
@@ -704,9 +800,11 @@ function card(im, useThumb){
     ? (cached ? `src="${cached.url}" data-thumb-done="1"` : `data-tkey="${tk}"`)
     : `src="${u}"`;
   const dimTxt = cached && cached.w ? `${cached.w}×${cached.h}` : '…';
+  const tip = im.meta && im.meta.prompt ? ` title="${escHtml(im.meta.prompt.slice(0, 180))}"` : '';
   return `<div class="card${im.fav?' fav':''}" data-name="${n}">
     <div class="cardImgWrap">
-      <img ${imgAttr} data-full="${u}" loading="lazy" decoding="async">
+      <img ${imgAttr} data-full="${u}" loading="lazy" decoding="async"${tip}>
+      <button type="button" class="trashBtn" onclick="event.stopPropagation();moveToTrash('${nJs}')" title="移入回收站">🗑</button>
       <button type="button" class="favStar" onclick="event.stopPropagation();toggleFav('${nJs}')" title="${im.fav?'取消收藏':'收藏'}">${im.fav?'★':'☆'}</button>
     </div>
     <div class="meta"><span>${n}</span><span><span class="dims">${dimTxt}</span>${kb?' · '+kb:''}</span></div>
@@ -781,6 +879,7 @@ async function loadHistory(){
     if (items.error){ $('history').innerHTML = '<div class="empty">' + escHtml(items.error) + '</div>'; return; }
     if (_histMoreObs) _histMoreObs.disconnect();
     _histItems = items || [];
+    _histItems.forEach(im => { if (im.name && im.meta) _metaMap.set(im.name, im.meta); });
     _histShown = 0;
     const box = $('history');
     box.innerHTML = '';
@@ -836,9 +935,19 @@ async function renameImage(name){
         a.setAttribute('onclick', (a.getAttribute('onclick')||'').split(name).join(j.name));
       });
     });
+    if (_metaMap.has(name)){ _metaMap.set(j.name, _metaMap.get(name)); _metaMap.delete(name); }
     loadHistory();
     logMsg('已重命名为 ' + j.name);
   }).catch(e => logMsg('重命名失败：' + e, true));
+}
+async function moveToTrash(name){
+  const j = await post('/api/trash/move', { name }).catch(() => ({ error: '请求失败' }));
+  if (j.error){ logMsg('移入回收站失败：' + j.error, true); return false; }
+  document.querySelectorAll('.card[data-name="' + CSS.escape(name) + '"]').forEach(el => el.remove());
+  _histItems = _histItems.filter(im => im.name !== name);
+  if (mgViewVisible()) mgRender();
+  logMsg('已移入回收站（可在作品管理中还原）');
+  return true;
 }
 
 
@@ -919,7 +1028,8 @@ async function fetchModels(){
   if (j.error){ setErr('拉取失败：' + j.error); return; }
   g.models = j.models;
   $('grpModels').value = j.models.join('\n');
-  $('setStatus').textContent = `已拉取 ${j.models.length} 个模型（尚未保存，请点「保存全部分组」）`;
+  const lat = j.latency_ms != null ? ` · 延迟 ${j.latency_ms}ms（零 Token 消耗）` : '';
+  $('setStatus').textContent = `已拉取 ${j.models.length} 个模型${lat}（尚未保存，请点「保存全部分组」）`;
 }
 async function saveAllGroups(silent){
   collectEditor();
@@ -941,7 +1051,7 @@ async function saveAllGroups(silent){
 async function useGroup(){
   const saved = await saveAllGroups(true);
   if (!saved) return;
-  const j = await post('/api/group/switch', { name: editGroups[gi].name });
+  const j = await post('/api/group/switch', { name: editGroups[gi].name, current_model: $('model').value });
   if (j.error){ setErr('切换失败：' + j.error); return; }
   editActive = j.group;
   await refreshHeader();
@@ -951,7 +1061,7 @@ async function useGroup(){
 }
 async function switchGroupHeader(){
   const name = $('groupSel').value;
-  const j = await post('/api/group/switch', { name });
+  const j = await post('/api/group/switch', { name, current_model: $('model').value });
   if (j.error){ logMsg('切换失败：' + j.error, true); await refreshHeader(); return; }
   applyModels(j.models, j.model);
   logMsg(`已切换到分组「${j.group}」`);
@@ -1000,12 +1110,17 @@ async function refreshHistColl(){
   }catch(e){ /* 静默 */ }
 }
 
+let mgTrashItems = [];
 async function mgRender(){
-  const s = await mgData();
+  const [s, tr] = await Promise.all([
+    mgData(),
+    fetch('/api/trash').then(r => r.json()).catch(() => [])
+  ]);
   mgDataCache = s;
+  mgTrashItems = Array.isArray(tr) ? tr : [];
   if (s.error){ $('mgSide').innerHTML = '<div class="empty">' + escHtml(s.error) + '</div>';
                 $('mgMain').innerHTML = ''; return; }
-  if (mgOpenId && !(s.collections || []).some(c => c.id === mgOpenId)) mgOpenId = null;
+  if (mgOpenId && mgOpenId !== '__trash__' && !(s.collections || []).some(c => c.id === mgOpenId)) mgOpenId = null;
   mgRenderSide(s);
   await mgRenderMain(s);
 }
@@ -1040,10 +1155,18 @@ function mgRenderSide(s){
     </div>
     <div class="mgSideList">
       ${def ? item(def) + '<div class="mgSideLabel">合集</div>' + (rest.map(item).join('') || '<div class="empty mgSideEmpty">还没有合集</div>') : '<div class="empty">还没有收藏夹</div>'}
+      <div class="mgSideLabel">回收站</div>
+      <div class="mgSideItem${mgOpenId === '__trash__' ? ' sel' : ''}" onclick="mgOpen('__trash__')">
+        <div class="mgSideTop">
+          <span class="mgSideName">🗑 回收站</span>
+          <span class="mgSideCount">${mgTrashItems.length}</span>
+        </div>
+      </div>
     </div>`;
 }
 
 async function mgRenderMain(s){
+  if (mgOpenId === '__trash__') return mgRenderTrash();
   const c = (s.collections || []).find(x => x.id === mgOpenId);
   if (!c){
     $('mgMain').innerHTML = '<div class="empty">← 从左侧选择一个收藏夹，或点「＋ 新建合集」创建</div>';
@@ -1195,7 +1318,58 @@ function mgPickCancel(){
   mgRender();
 }
 
-function mgOpen(cid){ mgOpenId = cid; mgRender(); }
+function mgOpen(cid){ mgPicking = false; mgSel.clear(); mgOpenId = cid; mgRender(); }
+
+function mgRenderTrash(){
+  const imgs = mgTrashItems || [];
+  const kb = im => im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : '';
+  const body = imgs.map(im => {
+    const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url);
+    return `
+    <div class="mgRow" data-name="${n}">
+      <img class="mgThumb" src="${u}" data-full="${u}" loading="lazy" decoding="async" title="双击放大预览">
+      <span class="mgRowName">${n}</span>
+      <span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
+      <span class="mgRowOps">
+        <a href="javascript:void(0)" onclick="trashRestore('${nJs}')">还原</a>
+        <a href="javascript:void(0)" class="mgDel" onclick="trashDelete('${nJs}')">永久删除</a>
+      </span>
+    </div>`;
+  }).join('');
+  $('mgMain').innerHTML = `
+    <div class="mgDetailHead">
+      <span class="mgName">🗑 回收站 · ${imgs.length} 张</span>
+      <div class="mgBtns">
+        ${imgs.length ? '<button class="danger" onclick="trashEmpty()">清空回收站</button>' : ''}
+      </div>
+    </div>
+    <div class="mgList">${body || '<div class="empty">回收站是空的</div>'}</div>`;
+  bindCard($('mgMain'));
+}
+async function trashRestore(name){
+  const j = await post('/api/trash/restore', { name }).catch(() => ({ error: '请求失败' }));
+  if (j.error) return logMsg('还原失败：' + j.error, true);
+  logMsg('已还原到历史记录');
+  loadHistory();
+  mgRender();
+}
+async function trashDelete(name){
+  const ok = await uiAsk({ title:'永久删除', msg:`彻底删除「${name}」？此操作不可恢复！`, okText:'永久删除', danger:true });
+  if (!ok) return;
+  const j = await post('/api/trash/delete', { name }).catch(() => ({ error: '请求失败' }));
+  if (j.error) return logMsg('删除失败：' + j.error, true);
+  _metaMap.delete(name);
+  logMsg('已永久删除');
+  mgRender();
+}
+async function trashEmpty(){
+  const ok = await uiAsk({ title:'清空回收站', msg:`彻底删除回收站里的全部 ${mgTrashItems.length} 张图片？此操作不可恢复！`, okText:'全部删除', danger:true });
+  if (!ok) return;
+  const j = await post('/api/trash/empty', {}).catch(() => ({ error: '请求失败' }));
+  if (j.error) return logMsg('清空失败：' + j.error, true);
+  logMsg(`已永久清空 ${j.count} 张图片`);
+  mgRender();
+}
 
 async function mgCreate(){
   const name = await uiAsk({ title:'新建合集', msg:'输入合集名称', value:'' });
@@ -1320,6 +1494,10 @@ function askOk(){
 }
 
 document.addEventListener('keydown', e => {
+  if ($('maskModal').style.display === 'flex'){
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undoMaskCanvas(); return; }
+    if (e.key === 'Escape'){ closeMaskEditor(); return; }
+  }
   if ($('lb').style.display === 'flex'){
     if (e.key === 'Escape'){ lbClose(); return; }
     if (e.key === 'ArrowLeft'){ e.preventDefault(); lbStep(-1); return; }

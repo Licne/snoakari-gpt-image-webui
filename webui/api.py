@@ -22,8 +22,9 @@ from .jobs import (_ACTIVE_JOBS, _BG_JOBS, _JOBS_LOCK, _bg_register,
 from .network import _make_opener, set_proxy
 from .storage import (BACKGROUNDS, BASE_DIR, FORMATS, IMG_MIMES, MODELS,
                        MODERATIONS, OUTPUT_DIR, QUALITIES, SIZE_GROUPS, SIZE_PRESETS,
-                       _read_disk_config, _write_disk_config, log,
-                       mask_key, save_config_file)
+                       TRASH_DIR, _read_disk_config, _write_disk_config,
+                       clear_trash_meta, delete_meta, load_meta, load_trash_meta,
+                       log, mask_key, rename_meta, set_trash_meta)
 from .version import APP_VER
 from .webindex import INDEX_HTML
 
@@ -93,6 +94,24 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, f.read(), IMG_MIMES[ext],
                            extra_headers={"ETag": etag},
                            cache_control="private, max-age=86400")
+        elif self.path.startswith("/trash/"):
+            name = os.path.basename(urllib.parse.unquote(self.path[len("/trash/"):]))
+            ext = os.path.splitext(name)[1].lower()
+            if ext not in IMG_MIMES or not re.fullmatch(r"[\w.-]+", name):
+                return self._send(404, {"error": "not found"})
+            path = os.path.join(TRASH_DIR, name)
+            if not os.path.isfile(path):
+                return self._send(404, {"error": "not found"})
+            st = os.stat(path)
+            etag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            if self.headers.get("If-None-Match") == etag:
+                return self._send(304, b"", ctype=None,
+                                  extra_headers={"ETag": etag},
+                                  cache_control="private, max-age=86400")
+            with open(path, "rb") as f:
+                self._send(200, f.read(), IMG_MIMES[ext],
+                           extra_headers={"ETag": etag},
+                           cache_control="private, max-age=86400")
         elif self.path.startswith("/assets/"):
             from .webindex import ASSETS
             name = os.path.basename(urllib.parse.unquote(self.path[len("/assets/"):]))
@@ -117,12 +136,19 @@ class ApiMixin(BaseHTTPRequestHandler):
                   for g in (cfg.get("groups") or [])]
             self._send(200, {"groups": gs, "active": cfg.get("group") or "",
                              "model": cfg["model"], "models": cfg.get("models") or []})
-        elif self.path == "/api/settings":
-            cfg = self.server.app_config
-            self._send(200, {"base_url": cfg["base_url"], "model": cfg["model"],
-                             "key_masked": mask_key(cfg["api_key"]),
-                             "proxy": cfg.get("proxy") or "",
-                             "env_key": bool(os.environ.get("GPT_IMAGE_API_KEY", "").strip())})
+        elif self.path == "/api/trash":
+            os.makedirs(TRASH_DIR, exist_ok=True)
+            items = []
+            for fn in os.listdir(TRASH_DIR):
+                ext = os.path.splitext(fn)[1].lower()
+                if ext in IMG_MIMES:
+                    p = os.path.join(TRASH_DIR, fn)
+                    if os.path.isfile(p):
+                        st = os.stat(p)
+                        items.append({"name": fn, "url": f"/trash/{fn}",
+                                      "size": st.st_size, "mtime": st.st_mtime})
+            items.sort(key=lambda x: -x["mtime"])
+            self._send(200, items)
         elif self.path == "/api/jobs":
             with _JOBS_LOCK:
                 jobs = [{k: v for k, v in e.items() if k != "payload"}
@@ -139,6 +165,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 sel = CL.items_of(cid) if cid else (favs if fav_only else None)
             except ValueError:
                 return self._send(200, {"error": "收藏夹不存在"})
+            meta_map = load_meta()
             items = []
             for fn in os.listdir(OUTPUT_DIR):
                 ext = os.path.splitext(fn)[1].lower()
@@ -146,9 +173,12 @@ class ApiMixin(BaseHTTPRequestHandler):
                     if sel is not None and fn not in sel:
                         continue
                     st = os.stat(os.path.join(OUTPUT_DIR, fn))
-                    items.append({"name": fn, "url": f"/outputs/{fn}",
-                                  "size": st.st_size, "mtime": st.st_mtime,
-                                  "fav": fn in favs})
+                    it = {"name": fn, "url": f"/outputs/{fn}",
+                          "size": st.st_size, "mtime": st.st_mtime,
+                          "fav": fn in favs}
+                    if fn in meta_map:
+                        it["meta"] = meta_map[fn]
+                    items.append(it)
             items.sort(key=lambda x: -x["mtime"])
             self._send(200, items[:500] if sel is not None else items[:200])
         elif self.path == "/api/collections":
@@ -212,34 +242,6 @@ class ApiMixin(BaseHTTPRequestHandler):
             except Exception as ex:
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
             return
-        if path == "/api/settings":
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-                payload = json.loads(self.rfile.read(length).decode("utf-8"))
-                base_url = (payload.get("base_url") or "").strip()
-                model = (payload.get("model") or "").strip()
-                api_key = (payload.get("api_key") or "").strip()
-                if not base_url.startswith("http"):
-                    return self._send(200, {"error": "中转站地址必须以 http(s):// 开头"})
-                if not model:
-                    return self._send(200, {"error": "默认模型不能为空"})
-                proxy = (payload.get("proxy") or "").strip()
-                if proxy and not (proxy.startswith("http://") or proxy.startswith("https://")):
-                    return self._send(200, {"error": "代理地址需以 http:// 或 https:// 开头（socks 暂不支持）"})
-                save_config_file(base_url, model, api_key or None, proxy=proxy)
-                if api_key:
-                    self.server.app_config["api_key"] = api_key
-                self.server.app_config["base_url"] = base_url.rstrip("/")
-                self.server.app_config["model"] = model
-                self.server.app_config["proxy"] = proxy
-                set_proxy(proxy)
-                cfg = self.server.app_config
-                log(f"设置已更新：base_url={cfg['base_url']} 默认模型={cfg['model']} 代理={cfg.get('proxy') or '直连'}")
-                self._send(200, {"ok": True, "base_url": cfg["base_url"], "model": cfg["model"],
-                                 "key_masked": mask_key(cfg["api_key"])})
-            except Exception as e:
-                self._send(200, {"error": f"{type(e).__name__}: {e}"})
-            return
 
         if path == "/api/groups":
             try:
@@ -265,9 +267,11 @@ class ApiMixin(BaseHTTPRequestHandler):
                     key = (g.get("api_key") or "").strip()
                     if not key and name in old_groups:          # 留空 = 沿用旧密钥
                         key = old_groups[name]["api_key"]
+                    last_m = (g.get("last_model") or "").strip() or (old_groups[name].get("last_model", "") if name in old_groups else "")
                     groups.append({"name": name, "base_url": url, "api_key": key,
                                    "models": [str(m).strip() for m in (g.get("models") or []) if str(m).strip()],
-                                   "proxy": (g.get("proxy") or "").strip()})
+                                   "proxy": (g.get("proxy") or "").strip(),
+                                   "last_model": last_m})
                 if not groups:
                     return self._send(200, {"error": "没有有效分组"})
                 disk = _read_disk_config()
@@ -304,27 +308,37 @@ class ApiMixin(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
                 name = (p.get("name") or "").strip()
+                cur_model = (p.get("current_model") or "").strip()
                 groups = self.server.app_config.get("groups") or []
                 g = next((x for x in groups if x["name"] == name), None)
                 if g is None:
                     return self._send(200, {"error": "分组不存在（先在设置里保存）"})
                 if not g["api_key"]:
                     return self._send(200, {"error": "该分组未配置密钥"})
-                models = g["models"] or list(MODELS)
                 cfg = self.server.app_config
+                old_name = cfg.get("group") or ""
+                old_g = next((x for x in groups if x["name"] == old_name), None)
+                if old_g is not None and (cur_model or cfg.get("model")):
+                    old_g["last_model"] = cur_model or cfg["model"]
+                models = g["models"] or list(MODELS)
                 cfg["group"] = name
                 cfg["base_url"] = g["base_url"]
                 cfg["api_key"] = g["api_key"]
                 cfg["proxy"] = g["proxy"]
                 cfg["models"] = models
-                if cfg["model"] not in models:
+                remembered = g.get("last_model") or ""
+                if remembered in models:
+                    cfg["model"] = remembered
+                elif cfg["model"] not in models:
                     cfg["model"] = models[0]
+                g["last_model"] = cfg["model"]
                 set_proxy(g["proxy"])
                 disk = _read_disk_config()
+                disk["groups"] = groups
                 disk.update({"active_group": name, "base_url": g["base_url"], "api_key": g["api_key"],
                              "model": cfg["model"], "proxy": g["proxy"]})
                 _write_disk_config(disk)
-                log(f"已切换分组：{name}（{g['base_url']}，模型 {len(models)} 个）")
+                log(f"已切换分组：{name}（{g['base_url']}，模型 {cfg['model']} / 共 {len(models)} 个）")
                 self._send(200, {"ok": True, "group": name, "model": cfg["model"], "models": models})
             except Exception as e:
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
@@ -349,10 +363,12 @@ class ApiMixin(BaseHTTPRequestHandler):
                 opener = _make_opener(proxy)
                 req = urllib.request.Request(url + "/v1/models",
                                              headers={"Authorization": f"Bearer {key}"}, method="GET")
+                t0 = time.perf_counter()
                 with opener.open(req, timeout=30) as r:
                     data = json.loads(r.read().decode("utf-8"))
+                latency_ms = int((time.perf_counter() - t0) * 1000)
                 ids = [str(it.get("id")) for it in (data.get("data") or []) if it.get("id")]
-                self._send(200, {"ok": True, "models": sorted(ids)})
+                self._send(200, {"ok": True, "models": sorted(ids), "latency_ms": latency_ms})
             except Exception as e:
                 self._send(200, {"error": f"拉取失败：{e}"})
             return
@@ -393,8 +409,103 @@ class ApiMixin(BaseHTTPRequestHandler):
                     return self._send(200, {"error": "已存在同名文件"})
                 os.rename(src_p, dst_p)
                 CL.rename_file(name, to)
+                rename_meta(name, to)
                 log(f"重命名：outputs/{name} -> outputs/{to}")
                 self._send(200, {"ok": True, "name": to, "url": f"/outputs/{to}"})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/trash/move":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                raw = (p.get("name") or "").strip()
+                name = os.path.basename(raw)
+                if raw != name or not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
+                    return self._send(200, {"error": "非法文件名"})
+                src = os.path.join(OUTPUT_DIR, name)
+                if not os.path.isfile(src):
+                    return self._send(200, {"error": "文件不存在"})
+                os.makedirs(TRASH_DIR, exist_ok=True)
+                dst_name = name
+                dst = os.path.join(TRASH_DIR, dst_name)
+                if os.path.exists(dst):
+                    base, ext = os.path.splitext(name)
+                    dst_name = f"{base}-{int(time.time())}{ext}"
+                    dst = os.path.join(TRASH_DIR, dst_name)
+                    rename_meta(name, dst_name)
+                shutil.move(src, dst)
+                cids = CL.remove_file(name)
+                set_trash_meta(dst_name, {"orig_name": name, "cids": cids, "ts": int(time.time())})
+                log(f"移入回收站：outputs/{name} -> trash/{dst_name}")
+                self._send(200, {"ok": True, "name": dst_name})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/trash/restore":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                raw = (p.get("name") or "").strip()
+                name = os.path.basename(raw)
+                if raw != name or not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
+                    return self._send(200, {"error": "非法文件名"})
+                src = os.path.join(TRASH_DIR, name)
+                if not os.path.isfile(src):
+                    return self._send(200, {"error": "回收站中不存在该文件"})
+                tmeta = load_trash_meta().get(name) or {}
+                target_name = os.path.basename(tmeta.get("orig_name") or name)
+                os.makedirs(OUTPUT_DIR, exist_ok=True)
+                dst = os.path.join(OUTPUT_DIR, target_name)
+                if os.path.exists(dst):
+                    base, ext = os.path.splitext(target_name)
+                    target_name = f"{base}-restored-{int(time.time())}{ext}"
+                    dst = os.path.join(OUTPUT_DIR, target_name)
+                shutil.move(src, dst)
+                if target_name != name:
+                    rename_meta(name, target_name)
+                CL.restore_file(target_name, tmeta.get("cids") or [])
+                set_trash_meta(name, None)
+                log(f"从回收站还原：trash/{name} -> outputs/{target_name}")
+                self._send(200, {"ok": True, "name": target_name})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/trash/delete":
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                raw = (p.get("name") or "").strip()
+                name = os.path.basename(raw)
+                if raw != name or not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
+                    return self._send(200, {"error": "非法文件名"})
+                p_file = os.path.join(TRASH_DIR, name)
+                if os.path.isfile(p_file):
+                    os.remove(p_file)
+                delete_meta([name])
+                set_trash_meta(name, None)
+                log(f"永久删除：trash/{name}")
+                self._send(200, {"ok": True})
+            except Exception as e:
+                self._send(200, {"error": f"{type(e).__name__}: {e}"})
+            return
+
+        if path == "/api/trash/empty":
+            try:
+                removed = []
+                if os.path.isdir(TRASH_DIR):
+                    for fn in os.listdir(TRASH_DIR):
+                        fp = os.path.join(TRASH_DIR, fn)
+                        if os.path.isfile(fp) and os.path.splitext(fn)[1].lower() in IMG_MIMES:
+                            os.remove(fp)
+                            removed.append(fn)
+                delete_meta(removed)
+                clear_trash_meta()
+                log(f"已清空回收站：{len(removed)} 张")
+                self._send(200, {"ok": True, "count": len(removed)})
             except Exception as e:
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
@@ -584,6 +695,13 @@ class ApiMixin(BaseHTTPRequestHandler):
                 return self._send(413, {"error": "请求体过大（图片太多或太大）"})
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             jid = (payload.get("job_id") or "").strip()
+            req_model = (payload.get("model") or "").strip()
+            if req_model:
+                cfg_live = self.server.app_config
+                cfg_live["model"] = req_model
+                ag = next((x for x in (cfg_live.get("groups") or []) if x["name"] == cfg_live.get("group")), None)
+                if ag is not None:
+                    ag["last_model"] = req_model
             cfg_snap = dict(self.server.app_config)
             _bg_register(jid, payload, cfg_snap)
             try:
