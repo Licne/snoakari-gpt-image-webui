@@ -39,6 +39,8 @@ def validate_size(size, model=""):
     if not m:
         return "自定义尺寸格式应为 WxH，例如 2048x1152"
     w, h = int(m.group(1)), int(m.group(2))
+    if w < 16 or h < 16:
+        return "自定义尺寸的宽和高都必须至少为 16"
     if w % 16 or h % 16:
         return "自定义尺寸的宽和高都必须是 16 的倍数"
     ratio = max(w, h) / min(w, h)
@@ -173,6 +175,8 @@ def do_generate(cfg, payload):
             log(f"模型 {model} 非 gpt-image 系列，忽略专属参数：{sorted(extra)}")
         extra = {}
 
+    if not cfg.get("api_key"):
+        raise ValueError("未配置 API 密钥，请先点击右上角 ⚙ 设置分组密钥")
     auth = {"Authorization": f"Bearer {cfg['api_key']}"}
     t0 = time.time()
     job_id = (payload.get("job_id") or "").strip()

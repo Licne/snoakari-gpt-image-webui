@@ -34,7 +34,11 @@ def set_proxy(proxy):
     _opener = _make_opener((proxy or "").strip())
 
 
+def open_url(req, timeout=REQUEST_TIMEOUT):
+    return _opener.open(req, timeout=timeout)
+
+
 def api_request(url, headers, data=None, timeout=REQUEST_TIMEOUT):
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    return _opener.open(req, timeout=timeout)
+    return open_url(req, timeout=timeout)
 

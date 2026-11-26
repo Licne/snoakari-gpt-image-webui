@@ -7,7 +7,7 @@ import threading
 import time
 import urllib.request
 
-from .network import REQUEST_TIMEOUT, _opener
+from .network import REQUEST_TIMEOUT, open_url
 from .version import APP_VER
 
 _ACTIVE_JOBS = {}          # job_id -> {"resp": HTTPResponse|None, "cancelled": bool}
@@ -146,7 +146,7 @@ def fetch_bytes(url, job_id="", progress_cb=None):
     if _job_cancelled(job_id):
         raise ValueError("已中止")
     req = urllib.request.Request(url, headers={"User-Agent": f"gpt-image-webui/{APP_VER}"})
-    r = _opener.open(req, timeout=REQUEST_TIMEOUT)
+    r = open_url(req, timeout=REQUEST_TIMEOUT)
     # 注册响应对象，中止时直接 close 强断阻塞中的读
     if job_id:
         with _JOBS_LOCK:

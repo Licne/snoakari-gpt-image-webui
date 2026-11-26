@@ -56,6 +56,8 @@ def main():
     url = f"http://{'127.0.0.1' if args.host == '0.0.0.0' else args.host}:{args.port}"
     print(f"[gpt-image WebUI] v{APP_VER} 服务已启动：{url}")
     print(f"[gpt-image WebUI] 默认模型：{cfg['model']}  历史保存于：{OUTPUT_DIR}")
+    if not cfg.get("api_key"):
+        print("[gpt-image WebUI] 提示：尚未配置 API 密钥，请在页面右上角 ⚙ 设置分组与密钥")
     if cfg.get("proxy"):
         print(f"[gpt-image WebUI] 出站代理：{cfg['proxy']}")
     print("[gpt-image WebUI] 正在自动打开浏览器……（若没有弹出，请手动访问上面的地址）")

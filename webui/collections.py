@@ -15,7 +15,7 @@ COLLECTIONS_PATH = os.path.join(DATA_DIR, "collections.json")
 EXPORT_FORMAT = "snoakari-favorites-export"
 EXPORT_VERSION = 1
 DEFAULT_NAME = "我的收藏"
-_LOCK = threading.Lock()
+_LOCK = threading.RLock()
 
 
 # ---------- 底层读写 ----------
@@ -34,8 +34,10 @@ def _read_raw():
 
 def _write_raw(d):
     os.makedirs(DATA_DIR, exist_ok=True)
-    with open(COLLECTIONS_PATH, "w", encoding="utf-8", newline="\n") as f:
+    tmp = COLLECTIONS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, COLLECTIONS_PATH)
 
 
 def load_collections():
@@ -125,12 +127,13 @@ def create_collection(name):
         raise ValueError("收藏夹名称不能为空")
     if len(name) > 40:
         raise ValueError("收藏夹名称过长（≤40 字）")
-    d = load_collections()
-    if any(c["name"] == name for c in d["collections"]):
-        raise ValueError(f"收藏夹「{name}」已存在")
-    cid = _new_id(d)
-    d["collections"].append({"id": cid, "name": name, "items": []})
-    _save(d)
+    with _LOCK:
+        d = load_collections()
+        if any(c["name"] == name for c in d["collections"]):
+            raise ValueError(f"收藏夹「{name}」已存在")
+        cid = _new_id(d)
+        d["collections"].append({"id": cid, "name": name, "items": []})
+        _save(d)
     log(f"新建收藏夹：{name}")
     return {"id": cid, "name": name}
 
@@ -139,60 +142,64 @@ def rename_collection(cid, name):
     name = (name or "").strip()
     if not name:
         raise ValueError("合集名称不能为空")
-    d = load_collections()
-    c = _get(d, cid)
-    if c is None:
-        raise ValueError("收藏夹不存在")
-    if any(x["name"] == name and x["id"] != cid for x in d["collections"]):
-        raise ValueError(f"收藏夹「{name}」已存在")
-    old = c["name"]
-    c["name"] = name
-    _save(d)
+    with _LOCK:
+        d = load_collections()
+        c = _get(d, cid)
+        if c is None:
+            raise ValueError("收藏夹不存在")
+        if any(x["name"] == name and x["id"] != cid for x in d["collections"]):
+            raise ValueError(f"收藏夹「{name}」已存在")
+        old = c["name"]
+        c["name"] = name
+        _save(d)
     log(f"收藏夹改名：{old} -> {name}")
     return {"id": cid, "name": name}
 
 
 def delete_collection(cid):
-    d = load_collections()
-    if cid == d["default_id"]:
-        raise ValueError("「我的收藏」不可删除")
-    c = _get(d, cid)
-    if c is None:
-        raise ValueError("收藏夹不存在")
-    d["collections"] = [x for x in d["collections"] if x["id"] != cid]
-    _save(d)
+    with _LOCK:
+        d = load_collections()
+        if cid == d["default_id"]:
+            raise ValueError("「我的收藏」不可删除")
+        c = _get(d, cid)
+        if c is None:
+            raise ValueError("收藏夹不存在")
+        d["collections"] = [x for x in d["collections"] if x["id"] != cid]
+        _save(d)
     log(f"删除收藏夹：{c['name']}（{len(c['items'])} 个条目已解除关联，图片保留）")
     return {"deleted": cid}
 
 
 def set_item(cid, name, add):
     name = os.path.basename(name or "")
-    d = load_collections()
-    c = _get(d, cid)
-    if c is None:
-        raise ValueError("收藏夹不存在")
-    if add:
-        if not os.path.isfile(os.path.join(OUTPUT_DIR, name)):
-            raise ValueError("文件不存在")
-        if name not in c["items"]:
-            c["items"].append(name)
-    else:
-        c["items"] = [x for x in c["items"] if x != name]
-    _save(d)
+    with _LOCK:
+        d = load_collections()
+        c = _get(d, cid)
+        if c is None:
+            raise ValueError("收藏夹不存在")
+        if add:
+            if not os.path.isfile(os.path.join(OUTPUT_DIR, name)):
+                raise ValueError("文件不存在")
+            if name not in c["items"]:
+                c["items"].append(name)
+        else:
+            c["items"] = [x for x in c["items"] if x != name]
+        _save(d)
     return {"ok": True, "add": add, "name": name}
 
 
 def rename_file(old, new):
     """图片重命名后，同步所有收藏夹里的条目"""
-    d = load_collections()
-    changed = 0
-    for c in d["collections"]:
-        if old in c["items"]:
-            c["items"] = [new if x == old else x for x in c["items"]]
-            changed += 1
-    if changed:
-        _save(d)
-    return changed
+    with _LOCK:
+        d = load_collections()
+        changed = 0
+        for c in d["collections"]:
+            if old in c["items"]:
+                c["items"] = [new if x == old else x for x in c["items"]]
+                changed += 1
+        if changed:
+            _save(d)
+        return changed
 
 
 # ---------- 哈希去重 ----------
@@ -278,34 +285,35 @@ def import_zip(data):
         manifest = json.loads(z.read("manifest.json").decode("utf-8"))
         if manifest.get("format") != EXPORT_FORMAT:
             raise ValueError(f"未知的导出包格式：{manifest.get('format')}")
-        d = load_collections()
-        created = merged = added = skipped = dup_in_col = 0
-        for col in manifest.get("collections") or []:
-            cname = str(col.get("name") or "").strip()
-            if not cname:
-                continue
-            c = next((x for x in d["collections"] if x["name"] == cname), None)
-            if c is None:
-                c = {"id": _new_id(d), "name": cname, "items": []}
-                d["collections"].append(c)
-                created += 1
-            else:
-                merged += 1
-            for fn in col.get("items") or []:
-                fn = os.path.basename(str(fn))
-                zpath = "files/" + fn
-                if zpath not in names:
+        with _LOCK:
+            d = load_collections()
+            created = merged = added = skipped = dup_in_col = 0
+            for col in manifest.get("collections") or []:
+                cname = str(col.get("name") or "").strip()
+                if not cname:
                     continue
-                final, same = import_image_bytes(z.read(zpath), fn)
-                if same:
-                    skipped += 1
+                c = next((x for x in d["collections"] if x["name"] == cname), None)
+                if c is None:
+                    c = {"id": _new_id(d), "name": cname, "items": []}
+                    d["collections"].append(c)
+                    created += 1
                 else:
-                    added += 1
-                if final in c["items"]:
-                    dup_in_col += 1
-                else:
-                    c["items"].append(final)
-        _save(d)
+                    merged += 1
+                for fn in col.get("items") or []:
+                    fn = os.path.basename(str(fn))
+                    zpath = "files/" + fn
+                    if zpath not in names:
+                        continue
+                    final, same = import_image_bytes(z.read(zpath), fn)
+                    if same:
+                        skipped += 1
+                    else:
+                        added += 1
+                    if final in c["items"]:
+                        dup_in_col += 1
+                    else:
+                        c["items"].append(final)
+            _save(d)
         log(f"导入收藏包：新建夹 {created}、合并夹 {merged}、新图 {added}、"
             f"内容重复跳过 {skipped}、夹内重复 {dup_in_col}")
         return {"created": created, "merged": merged, "added": added,

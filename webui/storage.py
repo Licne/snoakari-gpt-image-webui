@@ -130,8 +130,11 @@ def _read_disk_config():
 
 
 def _write_disk_config(d):
-    with open(CONFIG_PATH, "w", encoding="utf-8", newline="\n") as f:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    tmp = CONFIG_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8", newline="\n") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, CONFIG_PATH)
 
 
 def load_config():
@@ -142,8 +145,6 @@ def load_config():
         active_name = groups[0]["name"]
     g = next(x for x in groups if x["name"] == active_name)
     api_key = os.environ.get("GPT_IMAGE_API_KEY", "").strip() or (cfg.get("api_key") or "").strip() or g["api_key"]
-    if not api_key:
-        raise SystemExit("错误：未配置密钥。请在 config.json 填写 api_key，或设置环境变量 GPT_IMAGE_API_KEY")
     base_url = (cfg.get("base_url") or g["base_url"] or "https://your-relay.example.com").strip().rstrip("/")
     models = g["models"] or list(MODELS)
     model = cfg.get("model") or ""

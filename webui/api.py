@@ -200,6 +200,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "dir": "exports", "count": total})
             except Exception as ex:
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
+            return
         if path == "/api/settings":
             try:
                 length = int(self.headers.get("Content-Length") or 0)
@@ -298,23 +299,22 @@ class ApiMixin(BaseHTTPRequestHandler):
                     return self._send(200, {"error": "分组不存在（先在设置里保存）"})
                 if not g["api_key"]:
                     return self._send(200, {"error": "该分组未配置密钥"})
-                if not g["models"]:
-                    return self._send(200, {"error": "该分组模型列表为空"})
+                models = g["models"] or list(MODELS)
                 cfg = self.server.app_config
                 cfg["group"] = name
                 cfg["base_url"] = g["base_url"]
                 cfg["api_key"] = g["api_key"]
                 cfg["proxy"] = g["proxy"]
-                cfg["models"] = g["models"]
-                if cfg["model"] not in g["models"]:
-                    cfg["model"] = g["models"][0]
+                cfg["models"] = models
+                if cfg["model"] not in models:
+                    cfg["model"] = models[0]
                 set_proxy(g["proxy"])
                 disk = _read_disk_config()
                 disk.update({"active_group": name, "base_url": g["base_url"], "api_key": g["api_key"],
                              "model": cfg["model"], "proxy": g["proxy"]})
                 _write_disk_config(disk)
-                log(f"已切换分组：{name}（{g['base_url']}，模型 {len(g['models'])} 个）")
-                self._send(200, {"ok": True, "group": name, "model": cfg["model"], "models": g["models"]})
+                log(f"已切换分组：{name}（{g['base_url']}，模型 {len(models)} 个）")
+                self._send(200, {"ok": True, "group": name, "model": cfg["model"], "models": models})
             except Exception as e:
                 self._send(200, {"error": f"{type(e).__name__}: {e}"})
             return
@@ -520,13 +520,14 @@ class ApiMixin(BaseHTTPRequestHandler):
                     e.pop("payload", None)  # 参数移交给新任务，避免双份大图驻留
                 jid = f"job-{int(time.time()*1000)}-{uuid.uuid4().hex[:6]}"
                 pl["job_id"] = jid
-                _bg_register(jid, pl, self.server.app_config)
+                cfg_snap = dict(self.server.app_config)
+                _bg_register(jid, pl, cfg_snap)
                 with _JOBS_LOCK:
                     ne = _BG_JOBS.get(jid)
                     if ne is not None:
                         ne["bg"] = True  # 从面板发起的重试，直接进面板
                 threading.Thread(target=run_bg_generate,
-                                 args=(self.server.app_config, pl, jid),
+                                 args=(cfg_snap, pl, jid),
                                  daemon=True).start()
                 log(f"重试任务 {old} -> {jid}")
                 self._send(200, {"ok": True, "job_id": jid})
@@ -539,6 +540,7 @@ class ApiMixin(BaseHTTPRequestHandler):
                 length = int(self.headers.get("Content-Length") or 0)
                 p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
                 jid = (p.get("job_id") or "").strip()
+                resp = None
                 with _JOBS_LOCK:
                     e = _BG_JOBS.get(jid)
                     if e is not None and e["status"] == "running":
@@ -548,11 +550,9 @@ class ApiMixin(BaseHTTPRequestHandler):
                         if act is not None:
                             act["cancelled"] = True
                             resp = act.get("resp")
-                        else:
-                            resp = None
-                        _BG_JOBS.pop(jid, None)
-                        if resp is not None:
-                            _kill_response(resp)
+                    _BG_JOBS.pop(jid, None)
+                if resp is not None:
+                    _kill_response(resp)
                 self._send(200, {"ok": True})
             except Exception as ex:
                 self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
@@ -573,9 +573,10 @@ class ApiMixin(BaseHTTPRequestHandler):
                 return self._send(413, {"error": "请求体过大（图片太多或太大）"})
             payload = json.loads(self.rfile.read(length).decode("utf-8"))
             jid = (payload.get("job_id") or "").strip()
-            _bg_register(jid, payload, self.server.app_config)
+            cfg_snap = dict(self.server.app_config)
+            _bg_register(jid, payload, cfg_snap)
             try:
-                result = do_generate(self.server.app_config, payload)
+                result = do_generate(cfg_snap, payload)
                 _bg_finish(jid, "done",
                            images=[im.get("name") for im in (result.get("images") or [])],
                            elapsed=result.get("elapsed"))

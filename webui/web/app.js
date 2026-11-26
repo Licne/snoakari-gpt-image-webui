@@ -1,6 +1,17 @@
 let mode = 'gen', files = [], maskFile = null;
 let genAbort = null, genJobId = '', genBgNow = false, genBusy = false;
 const $ = id => document.getElementById(id);
+const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+let _toastTimer = null;
+function logMsg(msg){
+  const el = $('toast');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
 const _SA = [76,105,99,110,101].map(c => String.fromCharCode(c)).join('');
 window.SA = _SA;
 const MODEL_NOTES = {
@@ -35,16 +46,15 @@ const MODEL_NOTES = {
   'grok-imagine-image-quality': 'Grok Imagine 高质量版',
   'grok-4.7-build-fast': 'Grok 4.7 快速构建版'
 };
-const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
 
 (async function init(){
   const cfg = await (await fetch('/api/config')).json();
-  $('groupSel').innerHTML = (cfg.groups||[]).map(g => `<option value="${g}">${g}</option>`).join('');
+  $('groupSel').innerHTML = (cfg.groups||[]).map(g => `<option value="${escHtml(g)}">${escHtml(g)}</option>`).join('');
   $('groupSel').value = cfg.group || '';
   let m0 = savedOrDefault('model', cfg.model);
   if (!(cfg.models||[]).includes(m0)) m0 = cfg.model;
   if (!(cfg.models||[]).includes(m0)) m0 = (cfg.models||[])[0] || '';
-  $('model').innerHTML = (cfg.models||[]).map(m => `<option value="${m}">${m}</option>`).join('');
+  $('model').innerHTML = (cfg.models||[]).map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
   $('model').value = m0;
   const ratioMap = {};
   $('sizeRatio').innerHTML = `<option value="auto">auto（自动）</option>`
@@ -72,13 +82,13 @@ const MODEL_QUALITY_MAX = m => /2\.5|2\.6|2-4k/.test(m) ? 'max' : 'high';
         }
       }
     }
-    ['model','sizeRatio','sizeTier','customSize','n','quality','background','format','moderation','prompt'].forEach(k=>{
+    ['sizeRatio','sizeTier','customSize','n','quality','background','format','moderation','prompt'].forEach(k=>{
       if (saved[k] !== undefined && $(k)) $(k).value = saved[k];
     });
     if (saved.comp !== undefined){ $('comp').value = saved.comp; }
   }catch(e){}
 
-  $('model').value = savedOrDefault('model', cfg.model);
+  $('model').value = m0;
   onModelChange(); onSizeChange(); onFormatChange();
   loadHistory();
   refreshHistColl();
@@ -145,11 +155,21 @@ function persistParams(){
   localStorage.setItem('gptImageParams', JSON.stringify(p));
 }
 
+function removeFile(i){
+  const [rem] = files.splice(i, 1);
+  if (rem && rem.url && rem.url.startsWith('blob:')) URL.revokeObjectURL(rem.url);
+  renderThumbs();
+}
+function clearMask(){
+  if (maskFile && maskFile.url && maskFile.url.startsWith('blob:')) URL.revokeObjectURL(maskFile.url);
+  maskFile = null;
+  renderMask();
+}
 function renderThumbs(){
-  $('thumbs').innerHTML = files.map((f,i)=>`<div class="thumb"><img src="${f.url}" onclick="lbShow(this.src)"><b onclick="files.splice(${i},1);renderThumbs()">×</b></div>`).join('');
+  $('thumbs').innerHTML = files.map((f,i)=>`<div class="thumb"><img src="${f.url}" onclick="lbShow(this.src)"><b onclick="removeFile(${i})">×</b></div>`).join('');
 }
 function renderMask(){
-  $('thumbMask').innerHTML = maskFile ? `<div class="thumb"><img src="${maskFile.url}" onclick="lbShow(this.src)"><b onclick="maskFile=null;renderMask()">×</b></div>` : '';
+  $('thumbMask').innerHTML = maskFile ? `<div class="thumb"><img src="${maskFile.url}" onclick="lbShow(this.src)"><b onclick="clearMask()">×</b></div>` : '';
 }
 function lbShow(u){ $('lbImg').src = u; $('lb').style.display='flex'; }
 
@@ -204,7 +224,10 @@ const dropMask = $('dropMask'), fileMask = $('fileMask');
 dropMask.onclick = () => fileMask.click();
 fileMask.onchange = () => {
   const f = fileMask.files[0];
-  if (f){ maskFile = { name:f.name, mime:f.type||'image/png', url:URL.createObjectURL(f), file:f }; }
+  if (f){
+    if (maskFile && maskFile.url && maskFile.url.startsWith('blob:')) URL.revokeObjectURL(maskFile.url);
+    maskFile = { name:f.name, mime:f.type||'image/png', url:URL.createObjectURL(f), file:f };
+  }
   fileMask.value = '';
   renderMask();
 };
@@ -334,17 +357,18 @@ async function refreshJobs(force){
         ? '已等 ' + Math.round((Date.now()/1000 - t.t0)) + ' 秒'
         : (t.elapsed || 0) + ' 秒';
       const imgs = (t.images||[]).length ? `，${t.images.length} 张已入库` : '';
-      const err = t.error ? `，${t.error.slice(0,60)}` : '';
+      const jidEsc = escHtml(t.id);
+      const jidJs = mgEsc(t.id);
       return `<div class="jobItem">
         <div class="jTop">
-          <span class="${cls}">● ${label}</span>
-          <span class="jid">${t.id}</span>
-          ${t.status==='failed' ? `<a class="retry" href="javascript:void(0)" onclick="retryJob('${t.id}')" title="用原参数重新生成">重试</a>` : ''}
-          <a class="del" href="javascript:void(0)" onclick="jobX('${t.id}','${t.status}')" title="${t.status==='running'?'中止任务':'从列表移除'}">✕</a>
+          <span class="${cls}">● ${escHtml(label)}</span>
+          <span class="jid">${jidEsc}</span>
+          ${t.status==='failed' ? `<a class="retry" href="javascript:void(0)" onclick="retryJob('${jidJs}')" title="用原参数重新生成">重试</a>` : ''}
+          <a class="del" href="javascript:void(0)" onclick="jobX('${jidJs}','${mgEsc(t.status)}')" title="${t.status==='running'?'中止任务':'从列表移除'}">✕</a>
         </div>
-        <div class="jMid">${t.mode==='edit'?'改图':'文生图'} · ${t.model} · ${t.size} · ${tstr}${imgs}</div>
-        ${t.error ? `<div class="jErr">${t.error.slice(0,80)}</div>` : ''}
-        <div class="jSub">${t.pshow||''}</div>
+        <div class="jMid">${t.mode==='edit'?'改图':'文生图'} · ${escHtml(t.model)} · ${escHtml(t.size)} · ${escHtml(tstr)}${imgs}</div>
+        ${t.error ? `<div class="jErr">${escHtml(t.error.slice(0,80))}</div>` : ''}
+        <div class="jSub">${escHtml(t.pshow||'')}</div>
       </div>`;
     }).join('') || '<div class="jobItem" style="color:var(--muted)">暂无任务</div>';
     $('jobsRun').textContent = running;
@@ -453,13 +477,15 @@ async function generate(){
 
 function card(im){
   const kb = im.size ? (im.size/1024).toFixed(0)+' KB' : '';
-  return `<div class="card${im.fav?' fav':''}" data-name="${im.name||''}">
-    <img src="${im.url}" data-full="${im.url}" loading="lazy">
-    <div class="meta"><span>${im.name||''}</span><span><span class="dims">…</span>${kb?' · '+kb:''}</span></div>
-    <div class="ops"><a href="javascript:void(0)" onclick="toggleFav('${im.name||''}')">${im.fav?'取消收藏':'收藏'}</a>
-    <a href="javascript:void(0)" onclick="renameImage('${im.name||''}')">重命名</a>
-    <a href="javascript:void(0)" onclick="addAsInput('${im.url}','${im.name||''}')">引用</a>
-    <a href="javascript:void(0)" onclick="exportImage('${im.name||''}')">导出</a></div></div>`;
+  const n = escHtml(im.name||''), nJs = mgEsc(im.name||'');
+  const u = escHtml(im.url||''), uJs = mgEsc(im.url||'');
+  return `<div class="card${im.fav?' fav':''}" data-name="${n}">
+    <img src="${u}" data-full="${u}" loading="lazy">
+    <div class="meta"><span>${n}</span><span><span class="dims">…</span>${kb?' · '+kb:''}</span></div>
+    <div class="ops"><a href="javascript:void(0)" onclick="toggleFav('${nJs}')">${im.fav?'取消收藏':'收藏'}</a>
+    <a href="javascript:void(0)" onclick="renameImage('${nJs}')">重命名</a>
+    <a href="javascript:void(0)" onclick="addAsInput('${uJs}','${nJs}')">引用</a>
+    <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a></div></div>`;
 }
 function bindCard(){
   document.querySelectorAll('img[data-full]').forEach(img=>{
@@ -490,7 +516,7 @@ async function loadHistory(){
     const cid = $('histColl') ? $('histColl').value : '';
     if (cid) params.push('cid=' + encodeURIComponent(cid));
     const items = await (await fetch('/api/history' + (params.length ? '?' + params.join('&') : ''))).json();
-    if (items.error){ $('history').innerHTML = '<div class="empty">' + items.error + '</div>'; return; }
+    if (items.error){ $('history').innerHTML = '<div class="empty">' + escHtml(items.error) + '</div>'; return; }
     $('history').innerHTML = items.length
       ? items.map(im => card(im)).join('')
       : `<div class="empty">${favOnly ? '收藏夹为空' : '暂无历史记录'}</div>`;
@@ -557,7 +583,7 @@ async function openSettings(){
 }
 function renderGroupEditor(){
   $('setGroup').innerHTML = editGroups.map((g,i) =>
-    `<option value="${i}">${g.name}${g.name===editActive?'（当前）':''}</option>`).join('');
+    `<option value="${i}">${escHtml(g.name)}${g.name===editActive?'（当前）':''}</option>`).join('');
   $('setGroup').value = gi;
   const g = editGroups[gi] || {};
   $('grpName').value = g.name || '';
@@ -648,13 +674,13 @@ async function switchGroupHeader(){
 async function refreshHeader(){
   try{
     const s = await (await fetch('/api/groups')).json();
-    $('groupSel').innerHTML = (s.groups||[]).map(g => `<option value="${g.name}">${g.name}</option>`).join('');
+    $('groupSel').innerHTML = (s.groups||[]).map(g => `<option value="${escHtml(g.name)}">${escHtml(g.name)}</option>`).join('');
     $('groupSel').value = s.active || '';
   }catch(e){}
 }
 function applyModels(models, model){
   const list = models || [];
-  $('model').innerHTML = list.map(m => `<option value="${m}">${m}</option>`).join('');
+  $('model').innerHTML = list.map(m => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
   $('model').value = list.includes(model) ? model : (list[0] || '');
   onModelChange();
 }
@@ -684,7 +710,7 @@ async function refreshHistColl(){
     const sel = $('histColl');
     const cur = sel.value;
     sel.innerHTML = '<option value="">全部（不筛选）</option>'
-      + (s.collections || []).map(c => `<option value="${c.id}">${c.name}${c.is_default ? '（默认）' : ''}</option>`).join('');
+      + (s.collections || []).map(c => `<option value="${escHtml(c.id)}">${escHtml(c.name)}${c.is_default ? '（默认）' : ''}</option>`).join('');
     sel.value = (s.collections || []).some(c => c.id === cur) ? cur : '';
   }catch(e){ /* 静默 */ }
 }
@@ -692,7 +718,7 @@ async function refreshHistColl(){
 async function mgRender(){
   const s = await mgData();
   mgDataCache = s;
-  if (s.error){ $('mgSide').innerHTML = '<div class="empty">' + s.error + '</div>';
+  if (s.error){ $('mgSide').innerHTML = '<div class="empty">' + escHtml(s.error) + '</div>';
                 $('mgMain').innerHTML = ''; return; }
   if (mgOpenId && !(s.collections || []).some(c => c.id === mgOpenId)) mgOpenId = null;
   mgRenderSide(s);
@@ -700,8 +726,8 @@ async function mgRender(){
 }
 
 function mgEsc(s){
-  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
-                  .replace(/'/g, "\\'").replace(/</g, '&lt;');
+  return String(s ?? '').replace(/\\/g, '\\\\').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                        .replace(/'/g, "\\'").replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function mgRenderSide(s){
@@ -709,16 +735,16 @@ function mgRenderSide(s){
   const def = cols.find(c => c.is_default);
   const rest = cols.filter(c => !c.is_default);
   const item = c => `
-    <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${c.id}')">
+    <div class="mgSideItem${c.id === mgOpenId ? ' sel' : ''}" onclick="mgOpen('${mgEsc(c.id)}')">
       <div class="mgSideTop">
-        <span class="mgSideName">${c.is_default ? '⭐' : '📁'} ${c.name}${c.is_default ? '<em>默认</em>' : ''}</span>
+        <span class="mgSideName">${c.is_default ? '⭐' : '📁'} ${escHtml(c.name)}${c.is_default ? '<em>默认</em>' : ''}</span>
         <span class="mgSideCount">${c.count}</span>
       </div>
       <div class="mgSideOps">
-        <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
-        <a title="导出" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
-        <a title="导出包" href="javascript:void(0)" onclick="event.stopPropagation();mgExportZip('${c.id}')">📦 导出包</a>
-        ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>`}
+        <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${mgEsc(c.id)}','${mgEsc(c.name)}')">✎ 重命名</a>
+        <a title="导出" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${mgEsc(c.id)}')">⬇ 导出</a>
+        <a title="导出包" href="javascript:void(0)" onclick="event.stopPropagation();mgExportZip('${mgEsc(c.id)}')">📦 导出包</a>
+        ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${mgEsc(c.id)}','${mgEsc(c.name)}')">✕ 删除</a>`}
       </div>
     </div>`;
   $('mgSide').innerHTML = `
@@ -743,11 +769,11 @@ async function mgRenderMain(s){
   const imgs = items.error ? [] : items;
   $('mgMain').innerHTML = `
     <div class="mgDetailHead">
-      <span class="mgName">${c.is_default ? '⭐' : '📁'} ${c.name}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
+      <span class="mgName">${c.is_default ? '⭐' : '📁'} ${escHtml(c.name)}${c.is_default ? ' <em>默认</em>' : ''} · ${imgs.length} 张</span>
       <div class="mgBtns">
         ${mgLayBtnHtml()}
-        <button onclick="mgImportImages('${c.id}')">导入图片</button>
-        <button onclick="mgStartPicker('${c.id}')">从历史添加</button>
+        <button onclick="mgImportImages('${mgEsc(c.id)}')">导入图片</button>
+        <button onclick="mgStartPicker('${mgEsc(c.id)}')">从历史添加</button>
       </div>
     </div>
     ${mgRenderImgs(imgs, c.id, false)}`;
@@ -761,33 +787,36 @@ function mgLayBtnHtml(){
 function mgRenderImgs(imgs, cid, pick){
   const emptyTxt = pick ? '没有可添加的图片' : '收藏夹是空的：用「导入图片」或「从历史添加」加入素材';
   const kb = im => im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : '';
+  const cidJs = mgEsc(cid);
   if (mgLayout === 'grid'){
     const body = imgs.map(im => {
       const sel = mgSel.has(im.name);
+      const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url);
       return `
-      <div class="card${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${im.name}">
-        <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
-        <div class="meta"><span>${im.name}</span><span><span class="dims">…</span>${kb(im)}</span></div>
+      <div class="card${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${n}">
+        <img class="mgThumb" src="${u}" data-full="${u}" loading="lazy" title="双击放大预览">
+        <div class="meta"><span>${n}</span><span><span class="dims">…</span>${kb(im)}</span></div>
         ${pick ? `<div class="ops">
-          <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</a>
+          <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${nJs}')">${sel ? '✓ 已选' : '选择'}</a>
         </div>` : `<div class="ops">
-          <a href="javascript:void(0)" onclick="exportImage('${im.name}')">导出</a>
-          <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
+          <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a>
+          <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cidJs}','${nJs}')">移出</a>
         </div>`}
       </div>`;}).join('');
     return `<div class="grid mgGrid">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
   }
   const body = imgs.map(im => {
     const sel = mgSel.has(im.name);
+    const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url);
     return `
-    <div class="mgRow${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${im.name}">
-      <img class="mgThumb" src="${im.url}" data-full="${im.url}" loading="lazy" title="双击放大预览">
-      <span class="mgRowName">${im.name}</span>
-      ${pick ? `<span class="mgPickZone${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</span>`
+    <div class="mgRow${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${n}">
+      <img class="mgThumb" src="${u}" data-full="${u}" loading="lazy" title="双击放大预览">
+      <span class="mgRowName">${n}</span>
+      ${pick ? `<span class="mgPickZone${sel ? ' on' : ''}" onclick="mgToggleSel('${nJs}')">${sel ? '✓ 已选' : '选择'}</span>`
         : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
       <span class="mgRowOps">
-        <a href="javascript:void(0)" onclick="exportImage('${im.name}')">导出</a>
-        <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
+        <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a>
+        <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cidJs}','${nJs}')">移出</a>
       </span>`}
     </div>`;}).join('');
   return `<div class="mgList">${body || '<div class="empty">' + emptyTxt + '</div>'}</div>`;
@@ -815,12 +844,12 @@ async function mgRenderPicker(s, c){
   const imgs = (all.error ? [] : all).filter(im => !inSet.has(im.name));
   $('mgMain').innerHTML = `
     <div class="mgDetailHead">
-      <span class="mgName">从历史添加到「${c.name}」· 已选 ${mgSel.size} 张</span>
+      <span class="mgName">从历史添加到「${escHtml(c.name)}」· 已选 ${mgSel.size} 张</span>
       <div class="mgBtns">
         ${mgLayBtnHtml()}
         <button id="mgPickFavBtn" onclick="mgTogglePickFav()" title="只显示星标收藏的图片">${mgPickFav ? '★ 只看收藏' : '☆ 只看收藏'}</button>
         <button onclick="mgPickCancel()">返回</button>
-        <button id="mgPickAdd" onclick="mgPickAdd('${c.id}')">添加所选（${mgSel.size}）</button>
+        <button id="mgPickAdd" onclick="mgPickAdd('${mgEsc(c.id)}')">添加所选（${mgSel.size}）</button>
       </div>
     </div>
     ${imgs.length ? mgRenderImgs(imgs, c.id, true) : '<div class="empty">没有可添加的图片（其余已在合集中）</div>'}`;
