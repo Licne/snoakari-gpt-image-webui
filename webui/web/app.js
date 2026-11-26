@@ -195,10 +195,10 @@ async function addAsInput(url, name){
     persistParams(); renderThumbs();
   }catch(e){ alert('引用失败：' + e); }
 }
-function revealImage(name){
-  fetch('/api/reveal?name=' + encodeURIComponent(name)).then(r => r.json()).then(j => {
-    if (j.error) alert('本地查看失败：' + j.error);
-  }).catch(e => alert('本地查看失败：' + e));
+async function exportImage(name){
+  const j = await post('/api/export', { name }).catch(() => ({error:'请求失败'}));
+  if (j.error) return alert('导出失败：' + j.error);
+  logMsg?.('已导出到 exports/，文件夹已打开');
 }
 const dropMask = $('dropMask'), fileMask = $('fileMask');
 dropMask.onclick = () => fileMask.click();
@@ -459,8 +459,7 @@ function card(im){
     <div class="ops"><a href="javascript:void(0)" onclick="toggleFav('${im.name||''}')">${im.fav?'取消收藏':'收藏'}</a>
     <a href="javascript:void(0)" onclick="renameImage('${im.name||''}')">重命名</a>
     <a href="javascript:void(0)" onclick="addAsInput('${im.url}','${im.name||''}')">引用</a>
-    <a href="${im.url}" download="${im.name||'image'}">下载</a>
-    <a href="javascript:void(0)" onclick="revealImage('${im.name||''}')">本地查看</a></div></div>`;
+    <a href="javascript:void(0)" onclick="exportImage('${im.name||''}')">导出</a></div></div>`;
 }
 function bindCard(){
   document.querySelectorAll('img[data-full]').forEach(img=>{
@@ -718,6 +717,7 @@ function mgRenderSide(s){
       <div class="mgSideOps">
         <a title="重命名" href="javascript:void(0)" onclick="event.stopPropagation();mgRename('${c.id}','${mgEsc(c.name)}')">✎ 重命名</a>
         <a title="导出" href="javascript:void(0)" onclick="event.stopPropagation();mgExport('${c.id}')">⬇ 导出</a>
+        <a title="导出包" href="javascript:void(0)" onclick="event.stopPropagation();mgExportZip('${c.id}')">📦 导出包</a>
         ${c.is_default ? '' : `<a title="删除" href="javascript:void(0)" class="mgDel" onclick="event.stopPropagation();mgDelete('${c.id}','${mgEsc(c.name)}')">✕ 删除</a>`}
       </div>
     </div>`;
@@ -771,7 +771,7 @@ function mgRenderImgs(imgs, cid, pick){
         ${pick ? `<div class="ops">
           <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</a>
         </div>` : `<div class="ops">
-          <a href="${im.url}" download="${im.name}">下载</a>
+          <a href="javascript:void(0)" onclick="exportImage('${im.name}')">导出</a>
           <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
         </div>`}
       </div>`;}).join('');
@@ -786,7 +786,7 @@ function mgRenderImgs(imgs, cid, pick){
       ${pick ? `<span class="mgPickZone${sel ? ' on' : ''}" onclick="mgToggleSel('${im.name}')">${sel ? '✓ 已选' : '选择'}</span>`
         : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
       <span class="mgRowOps">
-        <a href="${im.url}" download="${im.name}">下载</a>
+        <a href="javascript:void(0)" onclick="exportImage('${im.name}')">导出</a>
         <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cid}','${im.name}')">移出</a>
       </span>`}
     </div>`;}).join('');
@@ -901,16 +901,22 @@ async function mgRemoveItem(cid, name){
 }
 
 async function mgExport(cid){
+  const j = await post('/api/export', { cid }).catch(() => ({error:'请求失败'}));
+  if (j.error) return alert('导出失败：' + j.error);
+  logMsg?.(`已导出 ${j.count} 张到 exports/，文件夹已打开`);
+}
+
+async function mgExportZip(cid){
   const r = await fetch('/api/collections/export?id=' + encodeURIComponent(cid));
   const ct = r.headers.get('Content-Type') || '';
   if (!ct.includes('application/zip')){
     const j = await r.json().catch(() => ({}));
-    return alert('导出失败：' + (j.error || '未知错误'));
+    return alert('导出包失败：' + (j.error || '未知错误'));
   }
   const blob = await r.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = cid === 'all' ? 'snoakari-favorites-all.zip' : 'snoakari-favorites.zip';
+  a.download = cid === 'all' ? 'snoakari-collections-all.zip' : 'snoakari-collections.zip';
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }

@@ -4,7 +4,9 @@
 import json
 import os
 import re
+import shutil
 import subprocess
+import sys
 import threading
 import time
 import urllib.error
@@ -18,12 +20,30 @@ from .generate import do_generate, run_bg_generate
 from .jobs import (_ACTIVE_JOBS, _BG_JOBS, _JOBS_LOCK, _bg_register,
                    _bg_finish, _kill_response)
 from .network import _make_opener, set_proxy
-from .storage import (BACKGROUNDS, FORMATS, IMG_MIMES, MODELS, MODERATIONS,
-                       OUTPUT_DIR, QUALITIES, SIZE_GROUPS, SIZE_PRESETS,
+from .storage import (BACKGROUNDS, BASE_DIR, FORMATS, IMG_MIMES, MODELS,
+                       MODERATIONS, OUTPUT_DIR, QUALITIES, SIZE_GROUPS, SIZE_PRESETS,
                        _read_disk_config, _write_disk_config, log,
                        mask_key, save_config_file)
 from .version import APP_VER
 from .webindex import INDEX_HTML
+
+
+def _fs_safe(s):
+    """目录名安全化：替换 Windows/Linux 非法字符，中文保留"""
+    return re.sub(r'[\\/:*?"<>|\s]+', "_", str(s or "")).strip("_") or "未命名"
+
+
+def _open_folder(path):
+    """跨平台打开本地目录（导出完成后唤起文件管理器）"""
+    try:
+        if os.name == "nt":
+            os.startfile(path)  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except Exception:
+        pass
 
 
 class ApiMixin(BaseHTTPRequestHandler):
@@ -92,20 +112,6 @@ class ApiMixin(BaseHTTPRequestHandler):
                              "key_masked": mask_key(cfg["api_key"]),
                              "proxy": cfg.get("proxy") or "",
                              "env_key": bool(os.environ.get("GPT_IMAGE_API_KEY", "").strip())})
-        elif self.path.startswith("/api/reveal"):
-            import urllib.parse as _up
-            qs = _up.parse_qs(_up.urlsplit(self.path).query)
-            name = os.path.basename((qs.get("name") or [""])[0])
-            if not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
-                return self._send(200, {"error": "非法文件名"})
-            path = os.path.join(OUTPUT_DIR, name)
-            if not os.path.isfile(path):
-                return self._send(200, {"error": "文件不存在"})
-            if os.name != "nt":
-                return self._send(200, {"error": "仅 Windows 支持，当前系统 " + os.name})
-            subprocess.Popen('explorer /select,"' + os.path.abspath(path) + '"')
-            log(f"本地查看：已定位 outputs/{name}")
-            self._send(200, {"ok": True})
         elif self.path == "/api/jobs":
             with _JOBS_LOCK:
                 jobs = [{k: v for k, v in e.items() if k != "payload"}
@@ -144,12 +150,56 @@ class ApiMixin(BaseHTTPRequestHandler):
             except ValueError as e:
                 return self._send(200, {"error": str(e)})
             self._send(200, data, "application/zip",
-                       {"Content-Disposition": 'attachment; filename="snoakari-favorites.zip"'})
+                       {"Content-Disposition": 'attachment; filename="snoakari-collections.zip"'})
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
         path = self.path.split("?", 1)[0]
+        if path == "/api/export":
+            # 导出：把 data 中的图片复制到 exports/（不动原文件），完成后打开目录
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+                p = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                export_dir = os.path.join(BASE_DIR, "exports")
+                os.makedirs(export_dir, exist_ok=True)
+                name = os.path.basename((p.get("name") or "").strip())
+                if name:
+                    if not re.fullmatch(r"[\w.-]+", name) or os.path.splitext(name)[1].lower() not in IMG_MIMES:
+                        return self._send(200, {"error": "非法文件名"})
+                    src = os.path.join(OUTPUT_DIR, name)
+                    if not os.path.isfile(src):
+                        return self._send(200, {"error": "文件不存在"})
+                    shutil.copy2(src, os.path.join(export_dir, name))
+                    log(f"导出图片：outputs/{name} → exports/")
+                    _open_folder(export_dir)
+                    return self._send(200, {"ok": True, "dir": "exports", "count": 1})
+                cid = (p.get("cid") or "").strip()
+                if not cid:
+                    return self._send(200, {"error": "缺少 name 或 cid"})
+                cols = CL.list_collections()["collections"]
+                targets = [c for c in cols if cid in ("all", c["id"])]
+                if not targets:
+                    return self._send(200, {"error": "合集不存在"})
+                total = 0
+                for c in targets:
+                    names = [fn for fn in CL.items_of(c["id"])
+                             if os.path.isfile(os.path.join(OUTPUT_DIR, fn))]
+                    n = 0
+                    if names:
+                        sub = os.path.join(export_dir, _fs_safe(c["name"]))
+                        os.makedirs(sub, exist_ok=True)
+                        for fn in names:
+                            shutil.copy2(os.path.join(OUTPUT_DIR, fn), os.path.join(sub, fn))
+                            n += 1
+                    total += n
+                    log(f"导出合集「{c['name']}」：{n} 张 → exports/{_fs_safe(c['name'])}/")
+                if not total:
+                    return self._send(200, {"error": "合集内没有可导出的图片"})
+                _open_folder(export_dir if cid == "all" else os.path.join(export_dir, _fs_safe(targets[0]["name"])))
+                self._send(200, {"ok": True, "dir": "exports", "count": total})
+            except Exception as ex:
+                self._send(200, {"error": f"{type(ex).__name__}: {ex}"})
         if path == "/api/settings":
             try:
                 length = int(self.headers.get("Content-Length") or 0)

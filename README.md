@@ -2,7 +2,7 @@
 
 # SnoAkari gpt-image WebUI
 
-[![Version](https://img.shields.io/badge/version-2.2.12-green)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-2.2.13-green)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8%2B-blue)](https://www.python.org/)
 
