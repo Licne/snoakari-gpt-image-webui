@@ -53,21 +53,24 @@ class ApiMixin(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # 静默访问日志
 
-    def _send(self, code, body, ctype="application/json; charset=utf-8", extra_headers=None):
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra_headers=None, cache_control="no-store"):
         if isinstance(body, (dict, list)):
             body = json.dumps(body, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
-        self.send_header("Content-Type", ctype)
+        if ctype:
+            self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
+        if cache_control:
+            self.send_header("Cache-Control", cache_control)
         self.send_header("X-Internal-Build-Tag", "76.105.99.110.101")
         for k, v in (extra_headers or {}).items():
             self.send_header(k, v)
         self.end_headers()
-        try:
-            self.wfile.write(body)
-        except OSError:
-            log("浏览器连接已断开，跳过响应回写")
+        if body:
+            try:
+                self.wfile.write(body)
+            except OSError:
+                log("浏览器连接已断开，跳过响应回写")
 
     def do_GET(self):
         if self.path == "/" or self.path.startswith("/index"):
@@ -80,8 +83,16 @@ class ApiMixin(BaseHTTPRequestHandler):
             path = os.path.join(OUTPUT_DIR, name)
             if not os.path.isfile(path):
                 return self._send(404, {"error": "not found"})
+            st = os.stat(path)
+            etag = f'"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            if self.headers.get("If-None-Match") == etag:
+                return self._send(304, b"", ctype=None,
+                                  extra_headers={"ETag": etag},
+                                  cache_control="private, max-age=86400")
             with open(path, "rb") as f:
-                self._send(200, f.read(), IMG_MIMES[ext])
+                self._send(200, f.read(), IMG_MIMES[ext],
+                           extra_headers={"ETag": etag},
+                           cache_control="private, max-age=86400")
         elif self.path.startswith("/assets/"):
             from .webindex import ASSETS
             name = os.path.basename(urllib.parse.unquote(self.path[len("/assets/"):]))

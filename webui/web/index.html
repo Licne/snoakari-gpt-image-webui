@@ -21,21 +21,26 @@
     </div>
     <div class="headBar">
       <select id="groupSel" title="切换中转站分组" onchange="switchGroupHeader()"></select>
+      <button id="jobsToggleBtn" class="gear jobsBtn" onclick="toggleJobsPanel()" title="打开/收起后台任务面板" aria-label="后台任务">任务 <span id="jobsBadge" class="jobsBadge">0</span></button>
       <button class="gear" onclick="openSettings()" title="设置" aria-label="设置">⚙</button>
     </div>
   </div>
 
+  <div class="asideBody">
   <div class="tabs">
     <button id="tabGen" class="active" onclick="setMode('gen')">文生图</button>
     <button id="tabEdit" onclick="setMode('edit')">改图 / 多图融合</button>
   </div>
 
-  <label>提示词 <small>（上限 32000 字符）</small></label>
+  <div class="promptHead">
+    <label for="prompt">提示词 <small>（Ctrl+Enter 生成）</small></label>
+    <span class="promptMeta"><span id="promptCnt">0</span>/32000 · <a href="javascript:void(0)" onclick="clearPrompt()">清空</a></span>
+  </div>
   <textarea id="prompt" placeholder="描述要生成的画面……"></textarea>
 
   <div id="editBox" style="display:none">
     <label>输入图片（可多张融合，最多 16 张）</label>
-    <div class="drop" id="drop">点击选择或拖拽图片到此处<small>（PNG / JPG / WEBP，单张 ≤ 20MB）</small></div>
+    <div class="drop" id="drop">点击选择、拖拽或 Ctrl+V 粘贴图片<small>（PNG / JPG / WEBP，单张 ≤ 20MB）</small></div>
     <input type="file" id="file" accept="image/*" multiple hidden>
     <div class="thumbs" id="thumbs"></div>
 
@@ -101,34 +106,43 @@
     <select id="moderation"></select>
     <div class="hint">low = 更宽松的过滤；auto = 默认。</div>
   </div>
+  </div>
 
-  <button id="go" onclick="generate()">生成（约 60~90 秒 / 张）</button>
-  <div class="status" id="status"></div>
-  <button id="toBgBtn" class="bgBtn" style="display:none" onclick="toBackground()">转入后台，继续填写参数</button>
-  <div id="jobsPanel" class="jobsPanel" style="display:none">
-    <div class="jobsHead">
-      <span>后台任务（<span id="jobsRun">0</span> 个进行中）</span>
-      <span>
-        <a href="javascript:void(0)" onclick="refreshJobsNow()">刷新</a>
-        <a href="javascript:void(0)" onclick="clearJobs()">清除已完成</a>
-        <a href="javascript:void(0)" onclick="toggleJobsPanel(false)">收起</a>
-      </span>
+  <div class="asideFoot">
+    <button id="go" onclick="generate()">生成（约 60~90 秒 / 张）</button>
+    <button id="toBgBtn" class="bgBtn" style="display:none" onclick="toBackground()">转入后台，继续填写参数</button>
+    <div class="status" id="status"></div>
+    <div id="jobsPanel" class="jobsPanel" style="display:none">
+      <div class="jobsHead">
+        <span>后台任务（<span id="jobsRun">0</span> 个进行中）</span>
+        <span>
+          <a href="javascript:void(0)" onclick="refreshJobsNow()">刷新</a>
+          <a href="javascript:void(0)" onclick="clearJobs()">清除已完成</a>
+          <a href="javascript:void(0)" onclick="toggleJobsPanel(false)">收起</a>
+        </span>
+      </div>
+      <div id="jobsList"></div>
     </div>
-    <div id="jobsList"></div>
   </div>
 </aside>
 
 <main>
   <div id="wsView">
-    <h2>本次结果
-      <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button>
-      <button id="mgBtn" class="maskBtn" onclick="showView('mg')" style="margin-right:8px" title="打开作品管理页">作品管理</button>
-    </h2>
+    <div class="secHead">
+      <h2>本次结果</h2>
+      <div class="secTools">
+        <button id="mgBtn" class="maskBtn" onclick="showView('mg')" title="打开作品管理页">作品管理</button>
+        <button id="maskToggle" class="maskBtn" onclick="toggleMask()" title="隐私遮罩：开启后所有预览图自动模糊；单击单张图切换遮挡/显示，双击放大查看">遮罩：关</button>
+      </div>
+    </div>
     <div class="grid" id="results"><div class="empty">还没有生成结果，先在左侧写好提示词</div></div>
-    <h2 style="margin-top:24px">历史记录（outputs/ 目录）
-      <select id="histColl" class="histColl" onchange="loadHistory()" title="按收藏夹筛选历史"></select>
-      <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
-    </h2>
+    <div class="secHead" style="margin-top:24px">
+      <h2>历史记录（outputs/ 目录）</h2>
+      <div class="secTools">
+        <button id="favOnlyBtn" class="chip" onclick="toggleFavOnly()">★ 只看收藏</button>
+        <select id="histColl" class="histColl" onchange="loadHistory()" title="按收藏夹筛选历史"></select>
+      </div>
+    </div>
     <div class="grid" id="history"><div class="empty">加载中……</div></div>
   </div>
   <div id="mgView" style="display:none">
@@ -152,7 +166,20 @@
 </main>
 </div>
 
-<div class="lightbox" id="lb" onclick="this.style.display='none'"><img id="lbImg"></div>
+<div class="lightbox" id="lb" onclick="if(event.target===this)lbClose()">
+  <button class="lbClose" onclick="lbClose()" title="关闭 (Esc)">✕</button>
+  <button class="lbNav lbPrev" id="lbPrev" onclick="lbStep(-1)" title="上一张 (←)">‹</button>
+  <img id="lbImg">
+  <button class="lbNav lbNext" id="lbNext" onclick="lbStep(1)" title="下一张 (→)">›</button>
+  <div class="lbBar" id="lbBar" style="display:none">
+    <span class="lbInfo" id="lbInfo"></span>
+    <div class="lbActs">
+      <button id="lbFavBtn" onclick="lbFav()">☆ 收藏</button>
+      <button onclick="lbQuote()">引用改图</button>
+      <button onclick="lbExport()">导出</button>
+    </div>
+  </div>
+</div>
 
 <div class="modal" id="maskModal">
   <div class="box" style="width:min(94vw,960px)">
@@ -178,7 +205,7 @@
     <div class="sub" id="askMsg"></div>
     <input type="text" id="askInput" onkeydown="if(event.key==='Enter')askOk()">
     <div class="btns">
-      <button onclick="askCancel()">取消</button>
+      <button id="askCancelBtn" onclick="askCancel()">取消</button>
       <button id="askOkBtn" class="primary" onclick="askOk()">确定</button>
     </div>
   </div>
@@ -202,7 +229,10 @@
     <label>中转站地址 base_url</label>
     <input type="text" id="grpUrl" placeholder="https://xxx.com">
     <label>API 密钥 <small id="keyMasked"></small></label>
-    <input type="text" id="grpKey" placeholder="留空表示不修改">
+    <div class="pwdWrap">
+      <input type="password" id="grpKey" placeholder="留空表示不修改" autocomplete="off">
+      <button type="button" id="grpKeyEye" class="pwdEye" onclick="toggleKeyVis()" title="显示/隐藏密钥">👁</button>
+    </div>
     <label>网络代理 <small>（可选，如 http://127.0.0.1:7890；留空=直连）</small></label>
     <input type="text" id="grpProxy" placeholder="http://127.0.0.1:7890（留空直连）">
     <label>模型列表 <small>（每行一个，切换分组时下拉随之变化）</small></label>

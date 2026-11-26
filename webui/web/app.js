@@ -4,13 +4,17 @@ const $ = id => document.getElementById(id);
 const escHtml = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;')
   .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 let _toastTimer = null;
-function logMsg(msg){
+function logMsg(msg, isErr){
   const el = $('toast');
   if (!el) return;
   el.textContent = msg;
+  el.classList.toggle('err', !!isErr);
   el.classList.add('show');
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), isErr ? 3600 : 2600);
+}
+function uiAlert(title, msg){
+  return uiAsk({ title, msg, okText: '知道了', onlyOk: true });
 }
 const _SA = [76,105,99,110,101].map(c => String.fromCharCode(c)).join('');
 window.SA = _SA;
@@ -90,8 +94,10 @@ const MODEL_NOTES = {
 
   $('model').value = m0;
   onModelChange(); onSizeChange(); onFormatChange();
+  updatePromptCnt();
   loadHistory();
   refreshHistColl();
+  refreshJobs();
 })();
 
 function savedOrDefault(k, d){ try{ return JSON.parse(localStorage.getItem('gptImageParams')||'{}')[k] ?? d; }catch(e){ return d; } }
@@ -142,7 +148,36 @@ function onFormatChange(){
   }
 }
 $('comp').oninput = () => $('compVal').textContent = $('comp').value;
-$('prompt').addEventListener('input', persistParams);
+function updatePromptCnt(){
+  const el = $('promptCnt');
+  if (el) el.textContent = $('prompt').value.length;
+}
+function clearPrompt(){
+  $('prompt').value = '';
+  updatePromptCnt();
+  persistParams();
+  $('prompt').focus();
+}
+$('prompt').addEventListener('input', () => { updatePromptCnt(); persistParams(); });
+$('prompt').addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter'){ e.preventDefault(); generate(); }
+});
+document.addEventListener('paste', e => {
+  const items = e.clipboardData && e.clipboardData.items;
+  if (!items) return;
+  const imgs = [];
+  for (const it of items){
+    if (it.kind === 'file' && it.type.startsWith('image/')){
+      const f = it.getAsFile();
+      if (f) imgs.push(f);
+    }
+  }
+  if (!imgs.length) return;
+  e.preventDefault();
+  if (mode !== 'edit') setMode('edit');
+  addFiles(imgs);
+  logMsg(`已粘贴 ${imgs.length} 张参考图`);
+});
 $('model').onchange = onModelChange;
 $('sizeRatio').onchange = onSizeChange; $('sizeTier').onchange = onSizeChange;
 $('format').onchange = onFormatChange;
@@ -171,7 +206,61 @@ function renderThumbs(){
 function renderMask(){
   $('thumbMask').innerHTML = maskFile ? `<div class="thumb"><img src="${maskFile.url}" onclick="lbShow(this.src)"><b onclick="clearMask()">×</b></div>` : '';
 }
-function lbShow(u){ $('lbImg').src = u; $('lb').style.display='flex'; }
+let lbList = [], lbIdx = -1;
+function lbClose(){ $('lb').style.display = 'none'; lbList = []; lbIdx = -1; }
+function lbShow(u){
+  lbList = []; lbIdx = -1;
+  $('lbImg').src = u;
+  $('lbPrev').style.display = 'none';
+  $('lbNext').style.display = 'none';
+  $('lbBar').style.display = 'none';
+  $('lb').style.display = 'flex';
+}
+function lbOpenEl(imgEl){
+  const box = imgEl.closest('#results, #history, #mgMain');
+  const imgs = box ? [...box.querySelectorAll('img[data-full]')] : [imgEl];
+  lbList = imgs.map(el => {
+    const cardEl = el.closest('[data-name]');
+    const dimsEl = cardEl && cardEl.querySelector('.dims');
+    return {
+      url: el.dataset.full,
+      name: cardEl ? (cardEl.dataset.name || '') : '',
+      fav: cardEl ? cardEl.classList.contains('fav') : false,
+      dims: dimsEl ? dimsEl.textContent : ''
+    };
+  });
+  lbIdx = Math.max(0, imgs.indexOf(imgEl));
+  lbRenderCur();
+  $('lb').style.display = 'flex';
+}
+function lbRenderCur(){
+  const cur = lbList[lbIdx];
+  if (!cur) return;
+  $('lbImg').src = cur.url;
+  const multi = lbList.length > 1;
+  $('lbPrev').style.display = multi ? 'flex' : 'none';
+  $('lbNext').style.display = multi ? 'flex' : 'none';
+  if (cur.name){
+    $('lbBar').style.display = 'flex';
+    const cardEl = document.querySelector('.card[data-name="' + CSS.escape(cur.name) + '"]');
+    if (cardEl) cur.fav = cardEl.classList.contains('fav');
+    $('lbInfo').textContent = cur.name + (cur.dims && cur.dims !== '…' ? ' · ' + cur.dims : '')
+      + (multi ? ` (${lbIdx + 1}/${lbList.length})` : '');
+    const fb = $('lbFavBtn');
+    fb.textContent = cur.fav ? '★ 已收藏' : '☆ 收藏';
+    fb.classList.toggle('on', cur.fav);
+  } else {
+    $('lbBar').style.display = 'none';
+  }
+}
+function lbStep(d){
+  if (lbList.length <= 1) return;
+  lbIdx = (lbIdx + d + lbList.length) % lbList.length;
+  lbRenderCur();
+}
+function lbFav(){ const cur = lbList[lbIdx]; if (cur && cur.name) toggleFav(cur.name); }
+function lbQuote(){ const cur = lbList[lbIdx]; if (cur && cur.name){ addAsInput(cur.url, cur.name); lbClose(); } }
+function lbExport(){ const cur = lbList[lbIdx]; if (cur && cur.name) exportImage(cur.name); }
 
 /* ---------- 隐私遮罩 ---------- */
 let maskOn = localStorage.getItem('gptImageMask') === '1';
@@ -205,20 +294,22 @@ function addFiles(list){
   renderThumbs();
 }
 async function addAsInput(url, name){
-  if (files.length >= 16){ alert('输入图片已达上限（16 张）'); return; }
+  if (files.length >= 16){ logMsg('输入图片已达上限（16 张）', true); return; }
   try{
     const blob = await (await fetch(url)).blob();
     const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
     const f = new File([blob], name || ('input.' + ext), { type: blob.type || 'image/png' });
     files.push({ name:f.name, mime:f.type, url:URL.createObjectURL(f), file:f });
     if (mode !== 'edit') setMode('edit');
+    if (mgViewVisible()) showView('ws');
     persistParams(); renderThumbs();
-  }catch(e){ alert('引用失败：' + e); }
+    logMsg('已加入改图参考图');
+  }catch(e){ logMsg('引用失败：' + e, true); }
 }
 async function exportImage(name){
   const j = await post('/api/export', { name }).catch(() => ({error:'请求失败'}));
-  if (j.error) return alert('导出失败：' + j.error);
-  logMsg?.('已导出到 exports/，文件夹已打开');
+  if (j.error) return logMsg('导出失败：' + j.error, true);
+  logMsg('已导出到 exports/，文件夹已打开');
 }
 const dropMask = $('dropMask'), fileMask = $('fileMask');
 dropMask.onclick = () => fileMask.click();
@@ -235,7 +326,7 @@ fileMask.onchange = () => {
 // ---------------- 蒙版绘制（点击“绘制蒙版”按钮） ----------------
 let mBase = null, mStroke = null, mCtx = null, sCtx = null, mPainting = false;
 function openMaskEditor(){
-  if (!files.length){ alert('请先上传至少一张原图，再绘制蒙版'); return; }
+  if (!files.length){ logMsg('请先上传至少一张原图，再绘制蒙版', true); return; }
   const img = new Image();
   img.onload = () => {
     const cv = $('maskCv'), w = img.naturalWidth, h = img.naturalHeight;
@@ -333,10 +424,12 @@ function toBackground(){
   toggleJobsPanel(true); refreshJobs();
 }
 function toggleJobsPanel(show){
-  $('jobsPanel').style.display = show ? '' : 'none';
-  if (show) refreshJobs();
+  const panel = $('jobsPanel');
+  const next = show === undefined ? (panel.style.display === 'none') : !!show;
+  panel.style.display = next ? '' : 'none';
+  if (next) refreshJobs();
   if (bgPollTimer){ clearInterval(bgPollTimer); bgPollTimer = null; }
-  if (show) bgPollTimer = setInterval(refreshJobs, 3000);
+  if (next) bgPollTimer = setInterval(refreshJobs, 3000);
 }
 async function refreshJobs(force){
   try{
@@ -372,6 +465,9 @@ async function refreshJobs(force){
       </div>`;
     }).join('') || '<div class="jobItem" style="color:var(--muted)">暂无任务</div>';
     $('jobsRun').textContent = running;
+    const jb = $('jobsBadge'), jbtn = $('jobsToggleBtn');
+    if (jb) jb.textContent = running > 0 ? running : jobs.length;
+    if (jbtn) jbtn.classList.toggle('hasRun', running > 0);
     // 有新完成任务时刷一次历史（修复：原条件写反，恰在新完成时跳过；seenDone 未声明抛错被吞）
     window.seenDone = window.seenDone || {};
     const hasNew = jobs.some(t => t.status==='done' && !window.seenDone[t.id]);
@@ -395,7 +491,7 @@ async function cancelJob(jid){
 async function retryJob(jid){
   const r = await (await fetch('/api/jobs/retry', { method:'POST',
     headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_id: jid}) })).json();
-  if (r.error){ alert('重试失败：' + r.error); return; }
+  if (r.error){ logMsg('重试失败：' + r.error, true); return; }
   refreshJobs();
 }
 function jobX(jid, status){
@@ -475,33 +571,172 @@ async function generate(){
   } finally { genBusy = false; }
 }
 
-function card(im){
+/* ---------- 客户端缩略图缓存（IndexedDB + 限流解码，解决 2K/4K 大图滚动卡顿） ---------- */
+const _THUMB_PX = 360;
+const _thumbMem = new Map();       // key -> { url, w, h }
+let _thumbDbP = null;
+function _thumbDb(){
+  if (_thumbDbP) return _thumbDbP;
+  _thumbDbP = new Promise(res => {
+    try{
+      const req = indexedDB.open('gptImageThumbs', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('t');
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => res(null);
+    }catch(e){ res(null); }
+  });
+  return _thumbDbP;
+}
+async function _thumbGet(key){
+  if (_thumbMem.has(key)) return _thumbMem.get(key);
+  const db = await _thumbDb();
+  if (!db) return null;
+  return new Promise(res => {
+    try{
+      const tx = db.transaction('t', 'readonly');
+      const r = tx.objectStore('t').get(key);
+      r.onsuccess = () => {
+        const v = r.result;
+        if (v && v.blob){
+          const item = { url: URL.createObjectURL(v.blob), w: v.w, h: v.h };
+          _thumbMem.set(key, item);
+          res(item);
+        } else res(null);
+      };
+      r.onerror = () => res(null);
+    }catch(e){ res(null); }
+  });
+}
+async function _thumbPut(key, blob, w, h){
+  const item = { url: URL.createObjectURL(blob), w, h };
+  _thumbMem.set(key, item);
+  const db = await _thumbDb();
+  if (db){
+    try{
+      const tx = db.transaction('t', 'readwrite');
+      tx.objectStore('t').put({ blob, w, h }, key);
+    }catch(e){}
+  }
+  return item;
+}
+const _thumbQueue = [];
+let _thumbRunning = 0;
+function _thumbKick(){
+  while (_thumbRunning < 2 && _thumbQueue.length){
+    const img = _thumbQueue.shift();
+    if (!img || !img.isConnected || img.dataset.thumbDone) continue;
+    _thumbRunning++;
+    _thumbLoadOne(img).finally(() => { _thumbRunning--; _thumbKick(); });
+  }
+}
+async function _thumbLoadOne(img){
+  const key = img.dataset.tkey, full = img.dataset.full;
+  if (!full || img.dataset.thumbDone) return;
+  const cached = key ? await _thumbGet(key) : null;
+  if (cached){
+    if (!img.isConnected) return;
+    img.dataset.thumbDone = '1';
+    img.src = cached.url;
+    const host = img.closest('.card, .mgRow');
+    const dims = host && host.querySelector('.dims');
+    if (dims && cached.w) dims.textContent = cached.w + '×' + cached.h;
+    return;
+  }
+  try{
+    const resp = await fetch(full);
+    const blob = await resp.blob();
+    const bmp = await createImageBitmap(blob);
+    const w = bmp.width, h = bmp.height;
+    const scale = Math.min(1, _THUMB_PX / Math.max(w, h));
+    const tw = Math.max(1, Math.round(w * scale)), th = Math.max(1, Math.round(h * scale));
+    const cv = document.createElement('canvas');
+    cv.width = tw; cv.height = th;
+    const ctx = cv.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(bmp, 0, 0, tw, th);
+    bmp.close();
+    const tblob = await new Promise(r => cv.toBlob(b => r(b), 'image/webp', 0.82))
+               || await new Promise(r => cv.toBlob(b => r(b), 'image/jpeg', 0.82));
+    if (tblob && key){
+      const item = await _thumbPut(key, tblob, w, h);
+      if (img.isConnected){
+        img.dataset.thumbDone = '1';
+        img.src = item.url;
+        const host = img.closest('.card, .mgRow');
+        const dims = host && host.querySelector('.dims');
+        if (dims) dims.textContent = w + '×' + h;
+      }
+      return;
+    }
+  }catch(e){}
+  if (img.isConnected){ img.dataset.thumbDone = '1'; img.src = full; }
+}
+const _thumbObs = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
+  for (const en of entries){
+    if (!en.isIntersecting) continue;
+    const img = en.target;
+    _thumbObs.unobserve(img);
+    if (img.dataset.thumbDone) continue;
+    const key = img.dataset.tkey;
+    if (key && _thumbMem.has(key)){
+      const c = _thumbMem.get(key);
+      img.dataset.thumbDone = '1';
+      img.src = c.url;
+      const host = img.closest('.card, .mgRow');
+      const dims = host && host.querySelector('.dims');
+      if (dims && c.w) dims.textContent = c.w + '×' + c.h;
+    } else {
+      _thumbQueue.push(img);
+      _thumbKick();
+    }
+  }
+}, { rootMargin: '360px 0px' }) : null;
+function _tkey(im){ return (im.name || '') + '|' + (im.size || 0) + '|' + Math.round(im.mtime || 0); }
+
+function card(im, useThumb){
   const kb = im.size ? (im.size/1024).toFixed(0)+' KB' : '';
   const n = escHtml(im.name||''), nJs = mgEsc(im.name||'');
   const u = escHtml(im.url||''), uJs = mgEsc(im.url||'');
+  const tk = useThumb ? escHtml(_tkey(im)) : '';
+  const cached = useThumb && _thumbMem.get(_tkey(im));
+  const imgAttr = useThumb
+    ? (cached ? `src="${cached.url}" data-thumb-done="1"` : `data-tkey="${tk}"`)
+    : `src="${u}"`;
+  const dimTxt = cached && cached.w ? `${cached.w}×${cached.h}` : '…';
   return `<div class="card${im.fav?' fav':''}" data-name="${n}">
-    <img src="${u}" data-full="${u}" loading="lazy">
-    <div class="meta"><span>${n}</span><span><span class="dims">…</span>${kb?' · '+kb:''}</span></div>
-    <div class="ops"><a href="javascript:void(0)" onclick="toggleFav('${nJs}')">${im.fav?'取消收藏':'收藏'}</a>
-    <a href="javascript:void(0)" onclick="renameImage('${nJs}')">重命名</a>
-    <a href="javascript:void(0)" onclick="addAsInput('${uJs}','${nJs}')">引用</a>
-    <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a></div></div>`;
+    <div class="cardImgWrap">
+      <img ${imgAttr} data-full="${u}" loading="lazy" decoding="async">
+      <button type="button" class="favStar" onclick="event.stopPropagation();toggleFav('${nJs}')" title="${im.fav?'取消收藏':'收藏'}">${im.fav?'★':'☆'}</button>
+    </div>
+    <div class="meta"><span>${n}</span><span><span class="dims">${dimTxt}</span>${kb?' · '+kb:''}</span></div>
+    <div class="ops">
+      <a href="javascript:void(0)" onclick="renameImage('${nJs}')">重命名</a>
+      <a href="javascript:void(0)" onclick="addAsInput('${uJs}','${nJs}')">引用</a>
+      <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a>
+    </div></div>`;
 }
-function bindCard(){
-  document.querySelectorAll('img[data-full]').forEach(img=>{
+function bindCard(root){
+  (root || document).querySelectorAll('img[data-full]').forEach(img=>{
     if (maskOn) img.classList.add('masked');
     if (img.classList.contains('mgThumb')){
       img.onclick = () => { if (maskOn) img.classList.toggle('masked'); };
-      img.ondblclick = () => { $('lbImg').src = img.dataset.full; $('lb').style.display='flex'; };
+      img.ondblclick = () => lbOpenEl(img);
     } else {
       img.onclick = () => {
         if (maskOn){ img.classList.toggle('masked'); return; }
-        $('lbImg').src = img.dataset.full; $('lb').style.display='flex';
+        lbOpenEl(img);
       };
-      img.ondblclick = () => { $('lbImg').src = img.dataset.full; $('lb').style.display='flex'; };
+      img.ondblclick = () => lbOpenEl(img);
     }
-    const dims = img.parentElement.querySelector('.dims');
-    if (dims){
+    if (img.dataset.tkey && !img.dataset.thumbDone){
+      if (_thumbObs) _thumbObs.observe(img);
+      else { _thumbQueue.push(img); _thumbKick(); }
+      return;
+    }
+    const host = img.closest('.card, .mgRow') || img.parentElement;
+    const dims = host && host.querySelector('.dims');
+    if (dims && dims.textContent === '…'){
       const set = () => { if (img.naturalWidth) dims.textContent = img.naturalWidth + '×' + img.naturalHeight; };
       if (img.complete && img.naturalWidth) set(); else img.addEventListener('load', set);
     }
@@ -509,6 +744,33 @@ function bindCard(){
 }
 
 let favOnly = false;
+let _histItems = [], _histShown = 0;
+const _HIST_PAGE = 36;
+const _histMoreObs = ('IntersectionObserver' in window) ? new IntersectionObserver(entries => {
+  if (entries.some(e => e.isIntersecting) && _histShown < _histItems.length) renderHistMore();
+}, { rootMargin: '400px 0px' }) : null;
+function renderHistMore(){
+  const box = $('history');
+  const oldMore = box.querySelector('.histMore');
+  if (oldMore){ if (_histMoreObs) _histMoreObs.unobserve(oldMore); oldMore.remove(); }
+  const slice = _histItems.slice(_histShown, _histShown + _HIST_PAGE);
+  if (slice.length){
+    const wrap = document.createElement('div');
+    wrap.innerHTML = slice.map(im => card(im, true)).join('');
+    const nodes = [...wrap.children];
+    nodes.forEach(n => box.appendChild(n));
+    _histShown += slice.length;
+    nodes.forEach(n => bindCard(n));
+  }
+  const rest = _histItems.length - _histShown;
+  if (rest > 0){
+    const more = document.createElement('div');
+    more.className = 'histMore';
+    more.innerHTML = `<button onclick="renderHistMore()">正在加载更多（剩余 ${rest} 张）</button>`;
+    box.appendChild(more);
+    if (_histMoreObs) _histMoreObs.observe(more);
+  }
+}
 async function loadHistory(){
   try{
     const params = [];
@@ -517,10 +779,16 @@ async function loadHistory(){
     if (cid) params.push('cid=' + encodeURIComponent(cid));
     const items = await (await fetch('/api/history' + (params.length ? '?' + params.join('&') : ''))).json();
     if (items.error){ $('history').innerHTML = '<div class="empty">' + escHtml(items.error) + '</div>'; return; }
-    $('history').innerHTML = items.length
-      ? items.map(im => card(im)).join('')
-      : `<div class="empty">${favOnly ? '收藏夹为空' : '暂无历史记录'}</div>`;
-    bindCard();
+    if (_histMoreObs) _histMoreObs.disconnect();
+    _histItems = items || [];
+    _histShown = 0;
+    const box = $('history');
+    box.innerHTML = '';
+    if (!_histItems.length){
+      box.innerHTML = `<div class="empty">${favOnly ? '收藏夹为空' : '暂无历史记录'}</div>`;
+      return;
+    }
+    renderHistMore();
   }catch(e){ $('history').innerHTML = '<div class="empty">历史加载失败</div>'; }
 }
 function toggleFavOnly(){
@@ -535,21 +803,27 @@ function post(url, body){
 }
 function toggleFav(name){
   const first = document.querySelector('.card[data-name="' + CSS.escape(name) + '"]');
-  post('/api/fav', { name, fav: !(first && first.classList.contains('fav')) }).then(j => {
-    if (j.error) return alert('收藏失败：' + j.error);
+  const curFav = first ? first.classList.contains('fav')
+    : (lbList[lbIdx] && lbList[lbIdx].name === name ? lbList[lbIdx].fav : false);
+  post('/api/fav', { name, fav: !curFav }).then(j => {
+    if (j.error) return logMsg('收藏失败：' + j.error, true);
     document.querySelectorAll('.card[data-name="' + CSS.escape(name) + '"]').forEach(el => {
       el.classList.toggle('fav', j.fav);
-      const a = [...el.querySelectorAll('a')].find(x => x.textContent === '收藏' || x.textContent === '取消收藏');
-      if (a) a.textContent = j.fav ? '取消收藏' : '收藏';
+      const star = el.querySelector('.favStar');
+      if (star){ star.textContent = j.fav ? '★' : '☆'; star.title = j.fav ? '取消收藏' : '收藏'; }
     });
+    if ($('lb').style.display === 'flex' && lbList[lbIdx] && lbList[lbIdx].name === name){
+      lbList[lbIdx].fav = j.fav;
+      lbRenderCur();
+    }
     if (mgViewVisible()) mgRender();
-  }).catch(e => alert('收藏失败：' + e));
+  }).catch(e => logMsg('收藏失败：' + e, true));
 }
 async function renameImage(name){
   const to = await uiAsk({ title:'重命名图片', msg:'需带图片扩展名，如 my-asset.png', value:name });
   if (!to || to === name) return;
   post('/api/rename', { name, to }).then(j => {
-    if (j.error) return alert('重命名失败：' + j.error);
+    if (j.error) return logMsg('重命名失败：' + j.error, true);
     // 同名卡片可能出现在工作区/历史/作品管理（含从历史添加的选择卡），各元素做防御式更新
     document.querySelectorAll('.card[data-name="' + CSS.escape(name) + '"]').forEach(el => {
       el.dataset.name = j.name;
@@ -558,12 +832,13 @@ async function renameImage(name){
       if (img){ img.src = j.url; img.dataset.full = j.url; }
       const dl = el.querySelector('a[download]');
       if (dl){ dl.href = j.url; dl.setAttribute('download', j.name); }
-      el.querySelectorAll('a[onclick]').forEach(a => {
+      el.querySelectorAll('a[onclick], button[onclick]').forEach(a => {
         a.setAttribute('onclick', (a.getAttribute('onclick')||'').split(name).join(j.name));
       });
     });
     loadHistory();
-  }).catch(e => alert('重命名失败：' + e));
+    logMsg('已重命名为 ' + j.name);
+  }).catch(e => logMsg('重命名失败：' + e, true));
 }
 
 
@@ -578,8 +853,15 @@ async function openSettings(){
     editActive = s.active || '';
     gi = Math.max(0, editGroups.findIndex(g => g.name === editActive));
     renderGroupEditor();
-  }catch(e){ alert('读取分组失败：' + e); }
+  }catch(e){ logMsg('读取分组失败：' + e, true); }
   $('settingsModal').style.display = 'flex';
+}
+function toggleKeyVis(){
+  const inp = $('grpKey'), btn = $('grpKeyEye');
+  if (!inp) return;
+  const show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  if (btn) btn.textContent = show ? '🙈' : '👁';
 }
 function renderGroupEditor(){
   $('setGroup').innerHTML = editGroups.map((g,i) =>
@@ -589,6 +871,8 @@ function renderGroupEditor(){
   $('grpName').value = g.name || '';
   $('grpUrl').value = g.base_url || '';
   $('grpKey').value = '';
+  $('grpKey').type = 'password';
+  if ($('grpKeyEye')) $('grpKeyEye').textContent = '👁';
   $('keyMasked').textContent = g.has_key ? `（已存 ${g.key_masked}，留空不改）` : '（未设置密钥）';
   $('grpProxy').value = g.proxy || '';
   $('grpModels').value = (g.models || []).join('\n');
@@ -668,8 +952,9 @@ async function useGroup(){
 async function switchGroupHeader(){
   const name = $('groupSel').value;
   const j = await post('/api/group/switch', { name });
-  if (j.error){ alert('切换失败：' + j.error); await refreshHeader(); return; }
+  if (j.error){ logMsg('切换失败：' + j.error, true); await refreshHeader(); return; }
   applyModels(j.models, j.model);
+  logMsg(`已切换到分组「${j.group}」`);
 }
 async function refreshHeader(){
   try{
@@ -788,17 +1073,26 @@ function mgRenderImgs(imgs, cid, pick){
   const emptyTxt = pick ? '没有可添加的图片' : '收藏夹是空的：用「导入图片」或「从历史添加」加入素材';
   const kb = im => im.size ? ' · ' + (im.size/1024).toFixed(0) + ' KB' : '';
   const cidJs = mgEsc(cid);
+  const thumbAttr = im => {
+    const tk = _tkey(im), c = _thumbMem.get(tk);
+    return { attr: c ? `src="${c.url}" data-thumb-done="1"` : `data-tkey="${escHtml(tk)}"`,
+             dim: c && c.w ? `${c.w}×${c.h}` : '…' };
+  };
   if (mgLayout === 'grid'){
     const body = imgs.map(im => {
       const sel = mgSel.has(im.name);
-      const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url);
+      const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url), uJs = mgEsc(im.url);
+      const th = thumbAttr(im);
       return `
       <div class="card${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${n}">
-        <img class="mgThumb" src="${u}" data-full="${u}" loading="lazy" title="双击放大预览">
-        <div class="meta"><span>${n}</span><span><span class="dims">…</span>${kb(im)}</span></div>
+        <div class="cardImgWrap">
+          <img class="mgThumb" ${th.attr} data-full="${u}" loading="lazy" decoding="async" title="双击放大预览">
+        </div>
+        <div class="meta"><span>${n}</span><span><span class="dims">${th.dim}</span>${kb(im)}</span></div>
         ${pick ? `<div class="ops">
           <a href="javascript:void(0)" class="mgPickAct${sel ? ' on' : ''}" onclick="mgToggleSel('${nJs}')">${sel ? '✓ 已选' : '选择'}</a>
         </div>` : `<div class="ops">
+          <a href="javascript:void(0)" onclick="addAsInput('${uJs}','${nJs}')">引用</a>
           <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a>
           <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cidJs}','${nJs}')">移出</a>
         </div>`}
@@ -807,14 +1101,16 @@ function mgRenderImgs(imgs, cid, pick){
   }
   const body = imgs.map(im => {
     const sel = mgSel.has(im.name);
-    const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url);
+    const n = escHtml(im.name), nJs = mgEsc(im.name), u = escHtml(im.url), uJs = mgEsc(im.url);
+    const th = thumbAttr(im);
     return `
     <div class="mgRow${pick ? ' pick' : ''}${pick && sel ? ' picksel' : ''}" data-name="${n}">
-      <img class="mgThumb" src="${u}" data-full="${u}" loading="lazy" title="双击放大预览">
+      <img class="mgThumb" ${th.attr} data-full="${u}" loading="lazy" decoding="async" title="双击放大预览">
       <span class="mgRowName">${n}</span>
       ${pick ? `<span class="mgPickZone${sel ? ' on' : ''}" onclick="mgToggleSel('${nJs}')">${sel ? '✓ 已选' : '选择'}</span>`
-        : `<span class="mgRowInfo"><span class="dims">…</span>${kb(im)}</span>
+        : `<span class="mgRowInfo"><span class="dims">${th.dim}</span>${kb(im)}</span>
       <span class="mgRowOps">
+        <a href="javascript:void(0)" onclick="addAsInput('${uJs}','${nJs}')">引用</a>
         <a href="javascript:void(0)" onclick="exportImage('${nJs}')">导出</a>
         <a href="javascript:void(0)" class="mgDel" onclick="mgRemoveItem('${cidJs}','${nJs}')">移出</a>
       </span>`}
@@ -889,8 +1185,8 @@ async function mgPickAdd(cid){
   mgSel.clear();
   refreshHistColl();
   mgRender();
-  if (fail.length) alert('添加失败：\n' + fail.join('\n'));
-  else logMsg?.('已添加 ' + ok + ' 张');
+  if (fail.length) uiAlert('部分添加失败', fail.join('\n'));
+  else logMsg('已添加 ' + ok + ' 张');
 }
 
 function mgPickCancel(){
@@ -905,34 +1201,38 @@ async function mgCreate(){
   const name = await uiAsk({ title:'新建合集', msg:'输入合集名称', value:'' });
   if (!name || !name.trim()) return;
   const j = await post('/api/collections/create', { name: name.trim() });
-  if (j.error) return alert('创建失败：' + j.error);
+  if (j.error) return logMsg('创建失败：' + j.error, true);
   refreshHistColl(); mgRender();
+  logMsg('已创建合集「' + j.name + '」');
 }
 async function mgRename(cid, cur){
   const name = await uiAsk({ title:'重命名合集', value:cur });
   if (!name || !name.trim() || name === cur) return;
   const j = await post('/api/collections/rename', { id: cid, name: name.trim() });
-  if (j.error) return alert('重命名失败：' + j.error);
+  if (j.error) return logMsg('重命名失败：' + j.error, true);
   refreshHistColl(); mgRender();
+  logMsg('已重命名为「' + j.name + '」');
 }
 async function mgDelete(cid, name){
   const ok = await uiAsk({ title:'删除合集', msg:`删除合集「${name}」？只解除关联，不会删除 outputs/ 里的图片`, okText:'删除', danger:true });
   if (!ok) return;
   const j = await post('/api/collections/delete', { id: cid });
-  if (j.error) return alert('删除失败：' + j.error);
+  if (j.error) return logMsg('删除失败：' + j.error, true);
   if (mgOpenId === cid) mgOpenId = null;
   refreshHistColl(); mgRender();
+  logMsg('已删除合集「' + name + '」');
 }
 async function mgRemoveItem(cid, name){
   const j = await post('/api/collections/item', { id: cid, name, add: false });
-  if (j.error) return alert('移出失败：' + j.error);
+  if (j.error) return logMsg('移出失败：' + j.error, true);
   mgRender();
+  logMsg('已移出合集');
 }
 
 async function mgExport(cid){
   const j = await post('/api/export', { cid }).catch(() => ({error:'请求失败'}));
-  if (j.error) return alert('导出失败：' + j.error);
-  logMsg?.(`已导出 ${j.count} 张到 exports/，文件夹已打开`);
+  if (j.error) return logMsg('导出失败：' + j.error, true);
+  logMsg(`已导出 ${j.count} 张到 exports/，文件夹已打开`);
 }
 
 async function mgExportZip(cid){
@@ -940,7 +1240,7 @@ async function mgExportZip(cid){
   const ct = r.headers.get('Content-Type') || '';
   if (!ct.includes('application/zip')){
     const j = await r.json().catch(() => ({}));
-    return alert('导出包失败：' + (j.error || '未知错误'));
+    return logMsg('导出包失败：' + (j.error || '未知错误'), true);
   }
   const blob = await r.blob();
   const a = document.createElement('a');
@@ -958,8 +1258,8 @@ function mgImportZip(){
     if (!f) return;
     const r = await fetch('/api/collections/import', { method: 'POST', body: f });
     const j = await r.json();
-    if (j.error) return alert('导入失败：' + j.error);
-    alert(`导入完成：\n新建收藏夹 ${j.created} 个、合并 ${j.merged} 个\n新增图片 ${j.added} 张、内容重复跳过 ${j.skipped} 张`);
+    if (j.error) return logMsg('导入失败：' + j.error, true);
+    uiAlert('导入完成', `新建收藏夹 ${j.created} 个、合并 ${j.merged} 个\n新增图片 ${j.added} 张、内容重复跳过 ${j.skipped} 张`);
     refreshHistColl(); mgRender();
   };
   inp.click();
@@ -983,13 +1283,14 @@ function mgImportImages(cid){
         ok++;
       }catch(e){ fail.push(f.name + '：' + e); }
     }
-    alert('导入 ' + ok + ' 张' + (fail.length ? '；失败：\n' + fail.join('\n') : ''));
+    if (fail.length) uiAlert('导入结果', '成功导入 ' + ok + ' 张；失败：\n' + fail.join('\n'));
+    else logMsg('已导入 ' + ok + ' 张图片');
     refreshHistColl(); mgRender();
   };
   inp.click();
 }
 
-/* ---------- 通用输入/确认弹窗（替代浏览器默认 prompt/confirm） ---------- */
+/* ---------- 通用输入/确认弹窗（替代浏览器默认 prompt/confirm/alert） ---------- */
 let askResolve = null;
 function uiAsk(opt){
   return new Promise(res => {
@@ -998,9 +1299,12 @@ function uiAsk(opt){
     const msg = $('askMsg');
     msg.textContent = opt.msg || '';
     msg.style.display = opt.msg ? '' : 'none';
+    msg.style.whiteSpace = 'pre-wrap';
     const inp = $('askInput');
     if (opt.value === undefined || opt.value === null){ inp.style.display = 'none'; inp.value = ''; }
     else { inp.style.display = ''; inp.value = opt.value; }
+    const cancelBtn = $('askCancelBtn');
+    if (cancelBtn) cancelBtn.style.display = opt.onlyOk ? 'none' : '';
     const ok = $('askOkBtn');
     ok.textContent = opt.okText || '确定';
     ok.className = opt.danger ? 'danger' : 'primary';
@@ -1016,8 +1320,12 @@ function askOk(){
 }
 
 document.addEventListener('keydown', e => {
+  if ($('lb').style.display === 'flex'){
+    if (e.key === 'Escape'){ lbClose(); return; }
+    if (e.key === 'ArrowLeft'){ e.preventDefault(); lbStep(-1); return; }
+    if (e.key === 'ArrowRight'){ e.preventDefault(); lbStep(1); return; }
+  }
   if (e.key !== 'Escape') return;
   if ($('askModal').style.display === 'flex') { askCancel(); return; }
-  if ($('lb').style.display === 'flex') { $('lb').style.display = 'none'; return; }
   if (mgPicking) mgPickCancel();
 });
